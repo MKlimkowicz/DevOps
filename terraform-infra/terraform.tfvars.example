@@ -1,0 +1,37 @@
+# Project Configuration
+project_name = "devops-portfolio"
+environment  = "dev"
+owner        = "DevOps-Engineer"
+
+# AWS Configuration
+aws_region         = "eu-central-1"
+availability_zones = ["eu-central-1a", "eu-central-1b"]
+
+# Deployment Control
+deploy_database = false  # Set to true to deploy database instance
+
+# Instance Configuration
+instance_type  = "t3.medium"
+key_pair_name  = ""  # Leave empty to auto-generate SSH key pair
+
+# Network Configuration
+vpc_cidr              = "10.0.0.0/16"
+public_subnet_cidrs   = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs  = ["10.0.10.0/24", "10.0.20.0/24"]
+
+# Storage Configuration
+ebs_volume_size = 30  # Minimum required for Amazon Linux 2023
+ebs_volume_type = "gp3"
+
+# Monitoring Configuration
+enable_detailed_monitoring = true
+
+# Security Configuration
+# IMPORTANT: Replace with your actual public IP address for security
+# Get your IP with: curl ifconfig.me
+allowed_cidr_blocks = ["YOUR_PUBLIC_IP/32"]  # Replace YOUR_PUBLIC_IP with your actual IP
+ssh_cidr_blocks     = ["YOUR_PUBLIC_IP/32"]  # Replace YOUR_PUBLIC_IP with your actual IP
+
+# Application Configuration (Optional - will be auto-generated if not provided)
+# grafana_admin_password = "your-secure-password"
+# postgres_password      = "your-secure-db-password"

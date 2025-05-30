@@ -1,0 +1,141 @@
+# Prometheus configuration values
+prometheus:
+  prometheusSpec:
+    # Storage configuration
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    
+    # Retention policy
+    retention: 7d
+    retentionSize: 8GB
+    
+    # Resource limits
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    
+    # Additional scrape configs
+    additionalScrapeConfigs: []
+    
+    # Service monitor selector
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    
+    # Rule selector
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+# Grafana configuration
+grafana:
+  # Admin credentials
+  adminUser: admin
+  
+  # Persistence
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: local-path
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+  
+  # Resources
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  # Service configuration
+  service:
+    type: NodePort
+    nodePort: 30000
+  
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+      serve_from_sub_path: false
+    security:
+      allow_embedding: true
+    auth.anonymous:
+      enabled: false
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+  
+  # Default dashboards
+  defaultDashboardsEnabled: true
+  
+  # Sidecar configuration for dashboard discovery
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
+
+# Alertmanager configuration
+alertmanager:
+  alertmanagerSpec:
+    # Storage
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+    
+    # Resources
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  # Service configuration
+  service:
+    type: NodePort
+    nodePort: 30002
+
+# Node Exporter configuration
+nodeExporter:
+  enabled: true
+  
+# Kube State Metrics configuration
+kubeStateMetrics:
+  enabled: true
+
+# Prometheus Operator configuration
+prometheusOperator:
+  enabled: true
+  
+  # Resources
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi

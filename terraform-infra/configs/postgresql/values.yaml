@@ -1,0 +1,163 @@
+# PostgreSQL Helm values configuration
+
+# Authentication configuration
+auth:
+  enablePostgresUser: true
+  postgresUser: postgres
+  database: appdb
+  
+# Architecture
+architecture: standalone
+
+# Primary configuration
+primary:
+  # Persistence
+  persistence:
+    enabled: true
+    storageClass: local-path
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  
+  # Resources
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  # Service configuration
+  service:
+    type: NodePort
+    nodePorts:
+      postgresql: 30432
+  
+  # PostgreSQL configuration
+  pgHbaConfiguration: |
+    local all all trust
+    host all all 127.0.0.1/32 trust
+    host all all ::1/128 trust
+    host all all 0.0.0.0/0 md5
+  
+  # Custom PostgreSQL configuration
+  configuration: |
+    # Connection settings
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 100
+    
+    # Memory settings
+    shared_buffers = 128MB
+    effective_cache_size = 512MB
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+    
+    # Logging settings
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_statement = 'all'
+    log_min_duration_statement = 1000
+    
+    # Performance settings
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+
+# Metrics configuration
+metrics:
+  enabled: true
+  
+  # Prometheus metrics
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      app: postgresql-metrics
+  
+  # Metrics exporter configuration
+  image:
+    registry: docker.io
+    repository: bitnami/postgres-exporter
+    tag: 0.13.2-debian-11-r73
+  
+  # Resources for metrics exporter
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  
+  # Custom metrics queries
+  customMetrics:
+    pg_database:
+      query: "SELECT pg_database.datname, pg_database_size(pg_database.datname) as size FROM pg_database"
+      master: true
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - size:
+            usage: "GAUGE"
+            description: "Disk space used by the database"
+
+# Volume permissions
+volumePermissions:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnami/bitnami-shell
+    tag: 11-debian-11-r92
+  
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Security context
+securityContext:
+  enabled: true
+  fsGroup: 1001
+  runAsUser: 1001
+
+# Pod security context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001
+
+# Container security context
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsNonRoot: true
+
+# Network policy
+networkPolicy:
+  enabled: false
+
+# Pod disruption budget
+pdb:
+  create: true
+  minAvailable: 1
+
+# Backup configuration
+backup:
+  enabled: false
+  
+# Audit logging
+audit:
+  logConnections: true
+  logDisconnections: true
+  pgAuditLog: "all"
+  pgAuditLogCatalog: "off"
+  clientMinMessages: "error"

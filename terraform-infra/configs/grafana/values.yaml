@@ -1,0 +1,152 @@
+# Grafana Helm values configuration
+adminUser: admin
+
+# Persistence configuration
+persistence:
+  enabled: true
+  type: pvc
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  finalizers:
+    - kubernetes.io/pvc-protection
+
+# Resource configuration
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# Service configuration
+service:
+  type: NodePort
+  nodePort: 30000
+  port: 80
+  targetPort: 3000
+
+# Grafana configuration
+grafana.ini:
+  server:
+    protocol: http
+    http_port: 3000
+    domain: localhost
+    root_url: "%(protocol)s://%(domain)s/"
+    serve_from_sub_path: false
+    enable_gzip: true
+  
+  security:
+    admin_user: admin
+    allow_embedding: true
+    cookie_secure: false
+    cookie_samesite: lax
+  
+  auth:
+    disable_login_form: false
+    disable_signout_menu: false
+  
+  auth.anonymous:
+    enabled: false
+    org_name: Main Org.
+    org_role: Viewer
+  
+  analytics:
+    check_for_updates: false
+    reporting_enabled: false
+  
+  log:
+    mode: console
+    level: info
+  
+  paths:
+    data: /var/lib/grafana/
+    logs: /var/log/grafana
+    plugins: /var/lib/grafana/plugins
+    provisioning: /etc/grafana/provisioning
+
+# Dashboard providers
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards/default
+
+# Default dashboards
+dashboards:
+  default:
+    prometheus-stats:
+      gnetId: 2
+      revision: 2
+      datasource: Prometheus
+    node-exporter:
+      gnetId: 1860
+      revision: 27
+      datasource: Prometheus
+    kubernetes-cluster:
+      gnetId: 7249
+      revision: 1
+      datasource: Prometheus
+
+# Datasources
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://kube-prometheus-stack-prometheus:9090
+      access: proxy
+      isDefault: true
+      editable: true
+
+# Sidecar configuration
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    folder: /tmp/dashboards
+    searchNamespace: ALL
+    provider:
+      allowUiUpdates: true
+      foldersFromFilesStructure: true
+  
+  datasources:
+    enabled: true
+    label: grafana_datasource
+    labelValue: "1"
+    searchNamespace: ALL
+
+# Image configuration
+image:
+  repository: grafana/grafana
+  tag: "10.2.0"
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+  prometheus.io/path: "/metrics"
+
+# Environment variables
+env:
+  GF_EXPLORE_ENABLED: true
+  GF_PANELS_DISABLE_SANITIZE_HTML: true
+  GF_LOG_FILTERS: rendering:debug
