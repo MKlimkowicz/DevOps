@@ -2,7 +2,7 @@
 variable "project_name" {
   description = "Name of the project"
   type        = string
-  default     = "devops-portfolio"
+  default     = "devops"
 }
 
 variable "environment" {
@@ -33,6 +33,12 @@ variable "availability_zones" {
 # Deployment Control
 variable "deploy_database" {
   description = "Whether to deploy the database instance"
+  type        = bool
+  default     = false
+}
+
+variable "deploy_lambda" {
+  description = "Whether to deploy Lambda infrastructure for database connectivity"
   type        = bool
   default     = false
 }

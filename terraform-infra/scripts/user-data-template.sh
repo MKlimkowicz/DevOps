@@ -331,9 +331,11 @@ helm upgrade --install postgresql bitnami/postgresql \
   --set primary.persistence.storageClass=local-path \
   --set primary.service.type=NodePort \
   --set primary.service.nodePorts.postgresql=30432 \
-  --set metrics.enabled=true \
-  --set metrics.serviceMonitor.enabled=true \
-  --set metrics.serviceMonitor.namespace=monitoring
+  --set metrics.enabled=false \
+  --set metrics.serviceMonitor.enabled=false \
+  --set metrics.prometheusRule.enabled=false \
+  --wait \
+  --timeout=10m
 
 # Install node-exporter for system metrics
 helm upgrade --install node-exporter prometheus-community/prometheus-node-exporter \

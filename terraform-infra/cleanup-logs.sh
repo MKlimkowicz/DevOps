@@ -3,8 +3,8 @@
 echo "🧹 CloudWatch Log Group Cleanup Script"
 echo "This script helps clean up log groups before terraform destroy"
 
-# Get project and environment from terraform outputs or variables
-PROJECT_NAME=${1:-"devops-portfolio"}
+# Default values
+PROJECT_NAME=${1:-"devops"}
 ENVIRONMENT=${2:-"dev"}
 REGION=${3:-"eu-central-1"}
 

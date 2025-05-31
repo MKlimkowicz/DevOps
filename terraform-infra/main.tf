@@ -156,6 +156,21 @@ module "database_compute" {
   depends_on = [module.vpc, module.security]
 }
 
+# Lambda Module (Conditional)
+module "lambda" {
+  count  = var.deploy_lambda && var.deploy_database ? 1 : 0
+  source = "./modules/lambda"
+
+  project_name               = var.project_name
+  environment                = var.environment
+  lambda_role_arn            = module.security.lambda_role_arn
+  private_subnet_ids         = module.vpc.private_subnet_ids
+  lambda_security_group_id   = module.security.lambda_sg_id
+  database_host              = module.database_compute[0].private_ip
+
+  depends_on = [module.vpc, module.security, module.database_compute]
+}
+
 # Application Load Balancer
 resource "aws_lb" "main" {
   name               = "${var.project_name}-${var.environment}-alb"

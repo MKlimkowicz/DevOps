@@ -69,18 +69,22 @@ primary:
 
 # Metrics configuration
 metrics:
-  enabled: true
+  enabled: false
   
-  # Prometheus metrics
+  # Prometheus metrics - DISABLED to avoid CRD dependencies
   serviceMonitor:
-    enabled: true
+    enabled: false
     namespace: monitoring
     interval: 30s
     scrapeTimeout: 10s
     labels:
       app: postgresql-metrics
   
-  # Metrics exporter configuration
+  # Prometheus rules - DISABLED to avoid CRD dependencies  
+  prometheusRule:
+    enabled: false
+  
+  # Metrics exporter configuration - DISABLED
   image:
     registry: docker.io
     repository: bitnami/postgres-exporter
@@ -95,7 +99,7 @@ metrics:
       cpu: 50m
       memory: 64Mi
   
-  # Custom metrics queries
+  # Custom metrics queries - DISABLED
   customMetrics:
     pg_database:
       query: "SELECT pg_database.datname, pg_database_size(pg_database.datname) as size FROM pg_database"

@@ -436,3 +436,189 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 **⚠️ Important**: This infrastructure creates AWS resources that incur costs. Always run `terraform destroy` when you're done testing to avoid unexpected charges.
+
+## Recent Fixes (PostgreSQL Deployment)
+
+### 🔧 **Issue Resolved: ServiceMonitor CRD Error**
+
+**Problem**: PostgreSQL deployment was failing with:
+```
+Error: unable to build kubernetes objects from release manifest: resource mapping not found for name: "postgresql" namespace: "monitoring" from "": no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"
+```
+
+**Root Cause**: 
+- PostgreSQL was trying to create ServiceMonitor CRDs before Prometheus Operator was installed
+- Configuration conflicts between different deployment scripts
+- Script execution order dependency issues
+
+**Solution Implemented**:
+1. **Disabled ServiceMonitor in PostgreSQL deployment** to eliminate CRD dependencies
+2. **Centralized monitoring** - all ServiceMonitors are now created on the monitoring instance
+3. **Fixed configuration conflicts** across all deployment scripts
+4. **Enhanced cross-instance monitoring** with proper error handling and validation
+
+**Key Changes**:
+- `setup-database.sh`: Disabled metrics and ServiceMonitor components
+- `user-data-template.sh`: Fixed embedded PostgreSQL script
+- `configs/postgresql/values.yaml`: Updated to disable monitoring components
+- `setup-monitoring.sh`: Enhanced with better error handling and validation
+- `validate-deployment.sh`: Added comprehensive troubleshooting tools
+
+## Quick Start
+
+1. **Configure Variables**:
+   ```bash
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars with your settings
+   ```
+
+2. **Deploy Infrastructure**:
+   ```bash
+   terraform init
+   terraform plan
+   terraform apply
+   ```
+
+3. **Validate Deployment**:
+   ```bash
+   ./validate-deployment.sh your-project-name your-environment
+   ```
+
+## Troubleshooting
+
+### PostgreSQL Issues
+
+**ServiceMonitor Errors**: ✅ **RESOLVED**
+- ServiceMonitor is now disabled in PostgreSQL deployment
+- Monitoring is handled centrally from the monitoring instance
+
+**Database Connection Issues**:
+```bash
+# Check PostgreSQL status
+kubectl get pods -n database
+kubectl logs -n database -l app.kubernetes.io/name=postgresql
+
+# Test database connectivity
+kubectl exec -n database deployment/postgresql -- psql -U postgres -d appdb -c "SELECT version();"
+```
+
+**Postgres Exporter Issues**:
+```bash
+# Check exporter status
+kubectl get pods -n database -l app=postgres-exporter
+kubectl logs -n database -l app=postgres-exporter
+
+# Test metrics endpoint
+curl http://DATABASE_IP:30187/metrics
+```
+
+### Monitoring Issues
+
+**Grafana Not Accessible**:
+```bash
+# Check Grafana status
+kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana
+
+# Check service
+kubectl get svc -n monitoring grafana-alb
+
+# Check ALB target health
+aws elbv2 describe-target-health --target-group-arn TARGET_GROUP_ARN
+```
+
+**Missing PostgreSQL Metrics**:
+```bash
+# Check ServiceMonitor
+kubectl get servicemonitor -n monitoring postgres-external
+
+# Check if monitoring instance can reach database
+curl http://DATABASE_IP:30187/metrics
+
+# Check Prometheus targets
+# Go to http://MONITORING_IP:30001/targets
+```
+
+### Common Commands
+
+**Get Passwords**:
+```bash
+# Grafana admin password
+aws ssm get-parameter --name "/PROJECT/ENV/grafana/admin-password" --with-decryption --query 'Parameter.Value' --output text
+
+# PostgreSQL password
+aws ssm get-parameter --name "/PROJECT/ENV/postgres/password" --with-decryption --query 'Parameter.Value' --output text
+```
+
+**Check Instance Status**:
+```bash
+# SSH to instances
+aws ssm start-session --target INSTANCE_ID
+
+# Check k3s status
+sudo kubectl get nodes
+sudo kubectl get pods -A
+
+# Check user-data logs
+sudo tail -f /var/log/user-data.log
+```
+
+**Network Troubleshooting**:
+```bash
+# Test connectivity between instances
+curl -f http://INSTANCE_IP:PORT
+
+# Check security groups
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+
+# Check ALB health
+curl -f http://ALB_DNS/login
+```
+
+## Access Information
+
+After successful deployment:
+
+- **Grafana (via ALB)**: `http://ALB_DNS`
+- **Grafana (Direct)**: `http://MONITORING_IP:30003`
+- **Prometheus**: `http://MONITORING_IP:30001`
+- **AlertManager**: `http://MONITORING_IP:30002`
+- **PostgreSQL**: `DATABASE_IP:30432` (internal access only)
+
+**Default Credentials**:
+- Grafana: `admin` / (get from Parameter Store)
+- PostgreSQL: `postgres` / (get from Parameter Store)
+
+## Monitoring Features
+
+- **Infrastructure Monitoring**: CPU, Memory, Disk usage
+- **PostgreSQL Monitoring**: Database metrics, connections, query performance
+- **Cross-Instance Monitoring**: Centralized monitoring of distributed components
+- **Custom Dashboards**: Pre-configured dashboards for PostgreSQL and infrastructure
+- **Alerting**: Configured alerts for high resource usage and database issues
+
+## Architecture Decisions
+
+1. **Separated Database and Monitoring**: Improved resource isolation and scalability
+2. **Disabled Built-in ServiceMonitors**: Eliminates CRD dependency issues
+3. **Centralized Monitoring**: All monitoring configuration managed from monitoring instance
+4. **NodePort Services**: Enables cross-instance communication in private subnets
+5. **Parameter Store Integration**: Secure credential management
+
+## Contributing
+
+When making changes to deployment scripts:
+
+1. Test changes in a separate environment first
+2. Update validation scripts accordingly
+3. Document any new troubleshooting steps
+4. Ensure backward compatibility
+
+## Support
+
+For issues related to:
+- **PostgreSQL Deployment**: Check the troubleshooting section above
+- **Monitoring Setup**: Use the validation script for diagnostics
+- **Network Connectivity**: Verify security groups and instance status
+- **Access Issues**: Ensure credentials are retrieved from Parameter Store
+
+Run `./validate-deployment.sh` for comprehensive health checks and troubleshooting guidance.

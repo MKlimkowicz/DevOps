@@ -122,10 +122,27 @@ output "deployment_summary" {
   value = {
     monitoring_deployed = true
     database_deployed   = var.deploy_database
+    lambda_deployed     = var.deploy_lambda && var.deploy_database
     region              = var.aws_region
     environment         = var.environment
     project_name        = var.project_name
   }
+}
+
+# Lambda Outputs
+output "lambda_function_name" {
+  description = "Name of the Lambda function (if deployed)"
+  value       = var.deploy_lambda && var.deploy_database ? module.lambda[0].lambda_function_name : null
+}
+
+output "lambda_function_arn" {
+  description = "ARN of the Lambda function (if deployed)"
+  value       = var.deploy_lambda && var.deploy_database ? module.lambda[0].lambda_function_arn : null
+}
+
+output "lambda_invoke_command" {
+  description = "AWS CLI command to invoke the Lambda function"
+  value       = var.deploy_lambda && var.deploy_database ? "aws lambda invoke --function-name ${module.lambda[0].lambda_function_name} --payload '{}' response.json && cat response.json" : "Lambda not deployed"
 }
 
 # 🚀 DEPLOYMENT COMPLETE - ACCESS INFORMATION
@@ -157,6 +174,16 @@ output "access_information" {
     "🔐 SSH_ACCESS" = {
       monitoring_instance = "aws ssm start-session --target ${module.monitoring_compute.instance_id}"
       database_instance = var.deploy_database ? "aws ssm start-session --target ${module.database_compute[0].instance_id}" : "Not deployed"
+    }
+    "🚀 LAMBDA_ACCESS" = var.deploy_lambda && var.deploy_database ? {
+      function_name = module.lambda[0].lambda_function_name
+      function_arn = module.lambda[0].lambda_function_arn
+      invoke_command = "aws lambda invoke --function-name ${module.lambda[0].lambda_function_name} --payload '{}' response.json"
+      logs_command = "aws logs tail /aws/lambda/${module.lambda[0].lambda_function_name} --follow"
+      note = "Lambda can connect to database via VPC with secure Parameter Store access"
+    } : {
+      status = "Not deployed"
+      note = "Set deploy_lambda=true AND deploy_database=true to enable Lambda"
     }
     "⚠️ SECURITY_NOTE" = "Services are restricted to your IP. Update security groups if access issues occur."
   }

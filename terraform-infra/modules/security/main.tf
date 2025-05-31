@@ -125,6 +125,29 @@ resource "aws_security_group" "monitoring" {
   }
 }
 
+# Lambda Security Group
+resource "aws_security_group" "lambda" {
+  name_prefix = "${var.project_name}-${var.environment}-lambda-"
+  vpc_id      = var.vpc_id
+
+  # All outbound traffic (needed for VPC Lambda to access internet and AWS services)
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-lambda-sg"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 # Database Instance Security Group
 resource "aws_security_group" "database" {
   name_prefix = "${var.project_name}-${var.environment}-database-"
@@ -146,6 +169,24 @@ resource "aws_security_group" "database" {
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.monitoring.id]
+  }
+
+  # PostgreSQL NodePort from monitoring instance
+  ingress {
+    description     = "PostgreSQL NodePort"
+    from_port       = 30432
+    to_port         = 30432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
+  }
+
+  # PostgreSQL NodePort from Lambda
+  ingress {
+    description     = "PostgreSQL NodePort from Lambda"
+    from_port       = 30432
+    to_port         = 30432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda.id]
   }
 
   # PostgreSQL Exporter
@@ -269,4 +310,64 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   tags = {
     Name = "${var.project_name}-${var.environment}-ec2-profile"
   }
+}
+
+# Lambda IAM Role
+resource "aws_iam_role" "lambda_role" {
+  name = "${var.project_name}-${var.environment}-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-lambda-role"
+  }
+}
+
+# Lambda VPC Execution Policy
+resource "aws_iam_role_policy_attachment" "lambda_vpc_policy" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Lambda Custom Policy for Parameter Store and CloudWatch
+resource "aws_iam_role_policy" "lambda_policy" {
+  name = "${var.project_name}-${var.environment}-lambda-policy"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/${var.project_name}/${var.environment}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
 }
