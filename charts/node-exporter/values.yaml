@@ -1,0 +1,61 @@
+# Node Exporter configuration
+image:
+  repository: prom/node-exporter
+  tag: "v1.7.0"
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: NodePort
+  port: 9100
+  nodePort: 30100
+  targetPort: 9100
+
+# Resource limits
+resources:
+  limits:
+    cpu: 200m
+    memory: 50Mi
+  requests:
+    cpu: 100m
+    memory: 30Mi
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  readOnlyRootFilesystem: true
+
+# Node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Host network access
+hostNetwork: true
+hostPID: true
+
+# Volume mounts for host metrics
+hostMounts:
+  proc: /proc
+  sys: /sys
+  root: /
+
+# Container arguments
+args:
+  - '--path.procfs=/host/proc'
+  - '--path.sysfs=/host/sys'
+  - '--path.rootfs=/host/root'
+  - '--web.listen-address=0.0.0.0:9100'
+  - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
+# Labels for pods
+podLabels:
+  app: node-exporter
+  component: monitoring
+
+# Annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9100"
+  prometheus.io/path: "/metrics" 

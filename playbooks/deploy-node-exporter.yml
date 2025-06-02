@@ -1,0 +1,63 @@
+---
+- name: "Deploy Node Exporter and System Bootstrap"
+  hosts: kubernetes
+  gather_facts: yes
+  vars:
+    project_name: "{{ project_name | default('devops-infra') }}"
+    deployment_environment: "{{ deployment_environment | default('dev') }}"
+    
+  tasks:
+    - name: "Deploy Helm Charts to Instances"
+      include_tasks: tasks/deploy-charts.yml
+
+    - name: "System Bootstrap and Node Exporter Installation"
+      include_tasks: tasks/system-bootstrap.yml
+
+    - name: "Final Verification"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=[
+            "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+            "echo \"=== NODE EXPORTER DEPLOYMENT VERIFICATION ===\"",
+            "echo \"=== System Information ===\"",
+            "uname -a",
+            "docker --version",
+            "kubectl version --client",
+            "helm version --short",
+            "echo \"=== K8s Cluster Status ===\"",
+            "kubectl get nodes -o wide",
+            "echo \"=== Node Exporter Status ===\"",
+            "kubectl get pods -n monitoring -l app.kubernetes.io/name=node-exporter -o wide",
+            "kubectl get svc -n monitoring node-exporter",
+            "echo \"=== Node Exporter Metrics ===\"",
+            "timeout 15 curl -f -s http://localhost:30100/metrics | grep -E \"node_cpu_seconds_total|node_memory_MemTotal_bytes|node_filesystem_size_bytes\" | head -5",
+            "echo \"=== Disk Usage ===\"",
+            "df -h",
+            "echo \"=== Services Status ===\"",
+            "systemctl is-active docker amazon-ssm-agent",
+            "echo \"=== Node Exporter Deployment Complete ✅ ===\""
+          ]' \
+          --targets "Key=instanceids,Values={{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --output text \
+          --query 'Command.CommandId'
+      register: final_verify_command
+      delegate_to: localhost
+
+    - name: "Get Node Exporter verification results"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm get-command-invocation \
+          --command-id "{{ final_verify_command.stdout }}" \
+          --instance-id "{{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --query 'StandardOutputContent' \
+          --output text
+      register: final_verify_output
+      delegate_to: localhost
+
+    - name: "Display Node Exporter Deployment Results"
+      debug:
+        msg: "{{ final_verify_output.stdout }}" 

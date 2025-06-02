@@ -1,0 +1,131 @@
+- name: Create charts directory structure on instance
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=["mkdir -p /opt/k8s/charts/node-exporter/{templates,charts}", "chown -R ec2-user:ec2-user /opt/k8s"]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: mkdir_command
+  delegate_to: localhost
+
+- name: Wait for directory creation
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ mkdir_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: Copy Chart.yaml to instance
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    CHART_CONTENT=$(cat ../charts/node-exporter/Chart.yaml | base64 -w 0)
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters "commands=[\"echo '$CHART_CONTENT' | base64 -d > /opt/k8s/charts/node-exporter/Chart.yaml\"]" \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: chart_yaml_command
+  delegate_to: localhost
+
+- name: Copy values.yaml to instance  
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    VALUES_CONTENT=$(cat ../charts/node-exporter/values.yaml | base64 -w 0)
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters "commands=[\"echo '$VALUES_CONTENT' | base64 -d > /opt/k8s/charts/node-exporter/values.yaml\"]" \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: values_yaml_command
+  delegate_to: localhost
+
+- name: Copy daemonset template to instance
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    DAEMONSET_CONTENT=$(cat ../charts/node-exporter/templates/daemonset.yaml | base64 -w 0)
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters "commands=[\"echo '$DAEMONSET_CONTENT' | base64 -d > /opt/k8s/charts/node-exporter/templates/daemonset.yaml\"]" \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: daemonset_command
+  delegate_to: localhost
+
+- name: Copy service template to instance
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    SERVICE_CONTENT=$(cat ../charts/node-exporter/templates/service.yaml | base64 -w 0)
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters "commands=[\"echo '$SERVICE_CONTENT' | base64 -d > /opt/k8s/charts/node-exporter/templates/service.yaml\"]" \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: service_command
+  delegate_to: localhost
+
+- name: Copy helpers template to instance
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    HELPERS_CONTENT=$(cat ../charts/node-exporter/templates/_helpers.tpl | base64 -w 0)
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters "commands=[\"echo '$HELPERS_CONTENT' | base64 -d > /opt/k8s/charts/node-exporter/templates/_helpers.tpl\"]" \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: helpers_command
+  delegate_to: localhost
+
+- name: Wait for all file transfers
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    for cmd_id in {{ chart_yaml_command.stdout }} {{ values_yaml_command.stdout }} {{ daemonset_command.stdout }} {{ service_command.stdout }} {{ helpers_command.stdout }}; do
+      aws ssm wait command-executed \
+        --command-id "$cmd_id" \
+        --instance-id "{{ instance_id }}" \
+        --region "{{ aws_region }}"
+    done
+  delegate_to: localhost
+
+- name: Verify chart files
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=["ls -la /opt/k8s/charts/node-exporter/", "ls -la /opt/k8s/charts/node-exporter/templates/"]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: verify_files_command
+  delegate_to: localhost
+
+- name: Get file verification results
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ verify_files_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: files_output
+  delegate_to: localhost
+
+- name: Display chart files verification
+  debug:
+    msg: "{{ files_output.stdout }}" 
