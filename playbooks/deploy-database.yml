@@ -1,0 +1,53 @@
+---
+- name: "Deploy PostgreSQL Database with Persistence and Monitoring"
+  hosts: application_nodes
+  gather_facts: yes
+    
+  tasks:
+    - name: "Deploy PostgreSQL with PostgreSQL Exporter"
+      include_tasks: tasks/deploy-postgresql.yml
+
+    - name: "Final Database Verification"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=[
+            "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+            "echo \"=== DATABASE DEPLOYMENT VERIFICATION ===\"",
+            "echo \"=== PostgreSQL Status ===\"",
+            "kubectl get pods,svc,pvc -n database",
+            "echo \"=== PostgreSQL Database Test ===\"",
+            "POSTGRES_POD=$(kubectl get pods -n database -l app.kubernetes.io/name=postgresql -o jsonpath=\"{.items[0].metadata.name}\")",
+            "kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = \"public\";\"",
+            "kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"SELECT count(*) as sample_data_rows FROM sample_metrics;\"",
+            "echo \"=== PostgreSQL Exporter Metrics Test ===\"",
+            "timeout 15 curl -f -s http://localhost:30187/metrics | grep -E \"pg_up|pg_stat_database\" | head -5",
+            "echo \"=== Node Exporter Metrics Test ===\"",
+            "timeout 15 curl -f -s http://localhost:30100/metrics | grep -E \"node_cpu_seconds_total|node_memory_MemTotal_bytes\" | head -3",
+            "echo \"=== Disk Usage ===\"",
+            "df -h | grep -E \"(Filesystem|data)\"",
+            "echo \"=== Database Deployment Complete ✅ ===\""
+          ]' \
+          --targets "Key=instanceids,Values={{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --output text \
+          --query 'Command.CommandId'
+      register: final_verify_command
+      delegate_to: localhost
+
+    - name: "Get Database verification results"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm get-command-invocation \
+          --command-id "{{ final_verify_command.stdout }}" \
+          --instance-id "{{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --query 'StandardOutputContent' \
+          --output text
+      register: final_verify_output
+      delegate_to: localhost
+
+    - name: "Display Database Deployment Results"
+      debug:
+        msg: "{{ final_verify_output.stdout }}" 
