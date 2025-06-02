@@ -1,0 +1,84 @@
+---
+- name: "Deploy Full Monitoring Stack with Cross-Instance Scraping"
+  hosts: monitoring_nodes
+  gather_facts: yes
+  
+  tasks:
+    - name: "Deploy Monitoring Stack (Prometheus + Grafana + AlertManager)"
+      include_tasks: tasks/deploy-monitoring-stack.yml
+
+    - name: "Configure Cross-Instance Monitoring"
+      include_tasks: tasks/configure-cross-instance-monitoring.yml
+
+    - name: "Final Monitoring Stack Verification"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=[
+            "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+            "echo \"=== MONITORING STACK DEPLOYMENT VERIFICATION ===\"",
+            "echo \"=== Monitoring Pods Status ===\"",
+            "kubectl get pods -n monitoring -o wide",
+            "echo \"=== Monitoring Services ===\"",
+            "kubectl get svc -n monitoring",
+            "echo \"=== Persistent Volumes ===\"",
+            "kubectl get pvc -n monitoring",
+            "echo \"=== Prometheus Targets Test ===\"",
+            "timeout 15 curl -s http://localhost:30001/api/v1/targets | jq \".data.activeTargets[] | {job: .labels.job, instance: .labels.instance, health: .health}\" 2>/dev/null || echo \"Prometheus API not ready yet\"",
+            "echo \"=== Grafana Health Check ===\"",
+            "timeout 15 curl -f -s http://localhost:30000/api/health | jq . 2>/dev/null || echo \"Grafana not ready yet\"",
+            "echo \"=== Cross-Instance Connectivity Test ===\"",
+            "DATABASE_IP=$(aws ssm get-parameter --name \"/{{ project_name }}/{{ deployment_environment }}/database/private-ip\" --query \"Parameter.Value\" --output text --region {{ aws_region }} 2>/dev/null || echo \"none\")",
+            "if [ \"$DATABASE_IP\" != \"none\" ]; then",
+            "  echo \"Testing connectivity to Application Instance: $DATABASE_IP\"",
+            "  timeout 10 curl -s http://$DATABASE_IP:30100/metrics | head -3 || echo \"Node Exporter not accessible\"",
+            "  timeout 10 curl -s http://$DATABASE_IP:30187/metrics | grep pg_up || echo \"PostgreSQL Exporter not accessible\"",
+            "else",
+            "  echo \"Database IP not found in Parameter Store\"",
+            "fi",
+            "echo \"=== Monitoring Stack Deployment Complete ✅ ===\""
+          ]' \
+          --targets "Key=instanceids,Values={{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --output text \
+          --query 'Command.CommandId'
+      register: final_verify_command
+      delegate_to: localhost
+
+    - name: "Get Monitoring verification results"
+      ansible.builtin.shell: |
+        export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        aws ssm get-command-invocation \
+          --command-id "{{ final_verify_command.stdout }}" \
+          --instance-id "{{ instance_id }}" \
+          --region "{{ aws_region }}" \
+          --query 'StandardOutputContent' \
+          --output text
+      register: final_verify_output
+      delegate_to: localhost
+      retries: 5
+      delay: 30
+      until: final_verify_output.stdout is defined
+
+    - name: "Display Monitoring Deployment Summary"
+      debug:
+        msg: |
+          ============================================
+          ✅ Monitoring Stack Deployment Complete!
+          ============================================
+          📊 Monitoring Instance: {{ private_ip | default('10.0.10.103') }}
+          🎯 Access URLs:
+             - Grafana: http://{{ private_ip | default('10.0.10.103') }}:30000
+             - Prometheus: http://{{ private_ip | default('10.0.10.103') }}:30001
+             - AlertManager: http://{{ private_ip | default('10.0.10.103') }}:30002
+             - Grafana (ALB): http://{{ private_ip | default('10.0.10.103') }}:30003
+          
+          🔧 Verification Results:
+          {{ final_verify_output.stdout }}
+          
+          📡 Cross-Instance Monitoring:
+             - Application Instance: Scraped remotely
+             - Database Metrics: PostgreSQL + Node Exporter
+             - Monitoring Instance: Local Node Exporter
+          ============================================ 

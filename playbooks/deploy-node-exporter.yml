@@ -2,10 +2,7 @@
 - name: "Deploy Node Exporter and System Bootstrap"
   hosts: kubernetes
   gather_facts: yes
-  vars:
-    project_name: "{{ project_name | default('devops-infra') }}"
-    deployment_environment: "{{ deployment_environment | default('dev') }}"
-    
+  
   tasks:
     - name: "Deploy Helm Charts to Instances"
       include_tasks: tasks/deploy-charts.yml

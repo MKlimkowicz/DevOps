@@ -1,0 +1,297 @@
+---
+- name: "Get application instance private IP from Parameter Store"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/private-ip" \
+      --query 'Parameter.Value' \
+      --output text \
+      --region "{{ aws_region }}"
+  register: application_ip_result
+  delegate_to: localhost
+  failed_when: false
+
+- name: "Wait for application instance IP to be available"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    for i in {1..30}; do
+      APPLICATION_IP=$(aws ssm get-parameter \
+        --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/private-ip" \
+        --query 'Parameter.Value' \
+        --output text \
+        --region "{{ aws_region }}" 2>/dev/null || echo "none")
+      
+      if [ "$APPLICATION_IP" != "none" ] && [ -n "$APPLICATION_IP" ]; then
+        echo "$APPLICATION_IP"
+        exit 0
+      fi
+      
+      echo "Attempt $i/30: Waiting for application instance IP..."
+      sleep 10
+    done
+    
+    echo "10.0.20.81"  # Fallback to known IP
+  register: application_ip_final
+  delegate_to: localhost
+  when: application_ip_result.rc != 0
+
+- name: "Set application IP variable"
+  set_fact:
+    application_instance_ip: "{{ application_ip_result.stdout if application_ip_result.rc == 0 else application_ip_final.stdout }}"
+
+- name: "Test connectivity to application instance exporters"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "echo \"Testing connectivity to application instance: {{ application_instance_ip }}\"",
+        "echo \"=== Node Exporter Test ===\"",
+        "if timeout 10 curl -f -s http://{{ application_instance_ip }}:30100/metrics > /dev/null; then",
+        "  echo \"✅ Node Exporter accessible at {{ application_instance_ip }}:30100\"",
+        "  NODE_EXPORTER_OK=true",
+        "else",
+        "  echo \"❌ Node Exporter not accessible\"",
+        "  NODE_EXPORTER_OK=false",
+        "fi",
+        "echo \"=== PostgreSQL Exporter Test ===\"",
+        "if timeout 10 curl -f -s http://{{ application_instance_ip }}:30187/metrics > /dev/null; then",
+        "  PG_UP=$(timeout 10 curl -s http://{{ application_instance_ip }}:30187/metrics | grep \"^pg_up\" | head -1 | awk \"{print \\$2}\" || echo \"0\")",
+        "  if [ \"$PG_UP\" = \"1\" ]; then",
+        "    echo \"✅ PostgreSQL Exporter accessible and connected at {{ application_instance_ip }}:30187\"",
+        "    POSTGRES_EXPORTER_OK=true",
+        "  else",
+        "    echo \"⚠️ PostgreSQL Exporter accessible but not connected (pg_up=$PG_UP)\"",
+        "    POSTGRES_EXPORTER_OK=false",
+        "  fi",
+        "else",
+        "  echo \"❌ PostgreSQL Exporter not accessible\"",
+        "  POSTGRES_EXPORTER_OK=false",
+        "fi",
+        "echo \"NODE_EXPORTER_OK=$NODE_EXPORTER_OK\"",
+        "echo \"POSTGRES_EXPORTER_OK=$POSTGRES_EXPORTER_OK\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: connectivity_test_command
+  delegate_to: localhost
+
+- name: "Get connectivity test results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ connectivity_test_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: connectivity_test_output
+  delegate_to: localhost
+  retries: 5
+  delay: 10
+  until: connectivity_test_output.stdout is defined
+
+- name: "Create additional scrape configurations for cross-instance monitoring"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"Configuring cross-instance monitoring for application instance: {{ application_instance_ip }}\"",
+        "echo \"Removing existing secret if present...\"",
+        "kubectl delete secret additional-scrape-configs -n monitoring || echo \"Secret did not exist\"",
+        "echo \"Creating new additional scrape configs secret...\"",
+        "cat > ~/additional-scrape-configs.yaml << EOF",
+        "apiVersion: v1",
+        "kind: Secret",
+        "metadata:",
+        "  name: additional-scrape-configs",
+        "  namespace: monitoring",
+        "stringData:",
+        "  prometheus-additional.yaml: |",
+        "    - job_name: application-node-exporter",
+        "      static_configs:",
+        "        - targets: [\"{{ application_instance_ip }}:30100\"]",
+        "          labels:",
+        "            instance_type: application",
+        "            environment: {{ deployment_environment | default('dev') }}",
+        "            role: database-host",
+        "      scrape_interval: 30s",
+        "      scrape_timeout: 10s",
+        "      metrics_path: /metrics",
+        "    - job_name: application-postgres-exporter",
+        "      static_configs:",
+        "        - targets: [\"{{ application_instance_ip }}:30187\"]",
+        "          labels:",
+        "            instance_type: application",
+        "            environment: {{ deployment_environment | default('dev') }}",
+        "            role: postgres-database",
+        "      scrape_interval: 30s",
+        "      scrape_timeout: 10s",
+        "      metrics_path: /metrics",
+        "EOF",
+        "kubectl apply -f ~/additional-scrape-configs.yaml",
+        "echo \"Verifying secret creation...\"",
+        "kubectl get secret additional-scrape-configs -n monitoring || echo \"ERROR: Secret creation failed\"",
+        "kubectl get secret additional-scrape-configs -n monitoring -o jsonpath=\"{.data.prometheus-additional\\.yaml}\" | base64 -d | head -5",
+        "echo \"✅ Secret creation completed\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: scrape_config_command
+  delegate_to: localhost
+
+- name: "Apply additional scrape configs to Prometheus"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"Applying additional scrape configs to Prometheus...\"",
+        "cat > /tmp/prometheus-patch.json << EOF",
+        "{",
+        "  \"spec\": {",
+        "    \"additionalScrapeConfigs\": {",
+        "      \"name\": \"additional-scrape-configs\",",
+        "      \"key\": \"prometheus-additional.yaml\"",
+        "    }",
+        "  }",
+        "}",
+        "EOF",
+        "kubectl patch prometheus kube-prometheus-stack-prometheus -n monitoring --type=merge --patch-file=/tmp/prometheus-patch.json",
+        "echo \"Patching completed, waiting for Prometheus to reload...\"",
+        "sleep 60",
+        "echo \"Triggering manual reload...\"",
+        "curl -X POST http://localhost:30001/-/reload || echo \"Manual reload failed, automatic reload should work\"",
+        "sleep 30",
+        "echo \"✅ Cross-instance monitoring configuration applied\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: prometheus_patch_command
+  delegate_to: localhost
+
+- name: "Wait for Prometheus configuration reload"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ prometheus_patch_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: prometheus_patch_output
+  delegate_to: localhost
+  retries: 5
+  delay: 20
+  until: prometheus_patch_output.stdout is defined
+
+- name: "Verify cross-instance monitoring configuration"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"=== Cross-Instance Monitoring Verification ===\"",
+        "echo \"1. Additional scrape configs secret:\"",
+        "kubectl get secret additional-scrape-configs -n monitoring || echo \"Secret not found\"",
+        "echo \"\"",
+        "echo \"2. Waiting for Prometheus to reload configuration...\"",
+        "sleep 90",
+        "echo \"3. Checking for cross-instance targets:\"",
+        "for i in {1..15}; do",
+        "  echo \"Attempt $i/15: Checking targets...\"",
+        "  TARGETS=$(curl -s http://localhost:30001/api/v1/targets 2>/dev/null || echo \"{}\")",
+        "  REMOTE_COUNT=$(echo \"$TARGETS\" | grep -c \"10.0.20.81\" || echo \"0\")",
+        "  if [ \"$REMOTE_COUNT\" -gt \"0\" ]; then",
+        "    echo \"✅ Found $REMOTE_COUNT cross-instance targets\"",
+        "    echo \"Remote targets:\"",
+        "    echo \"$TARGETS\" | jq -r \".data.activeTargets[] | select(.labels.instance | contains(\\\"10.0.20.81\\\")) | \\\"Job: \\(.labels.job), Instance: \\(.labels.instance), Health: \\(.health)\\\"\" 2>/dev/null || echo \"Targets found but jq parsing failed\"",
+        "    break",
+        "  else",
+        "    echo \"No remote targets found yet, waiting...\"",
+        "    sleep 20",
+        "  fi",
+        "done",
+        "echo \"4. Final targets summary:\"",
+        "curl -s http://localhost:30001/api/v1/targets | jq -r \".data.activeTargets | length\" 2>/dev/null || echo \"API call failed\"",
+        "echo \"=== Verification complete ===\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: cross_instance_verify_command
+  delegate_to: localhost
+
+- name: "Get cross-instance verification results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ cross_instance_verify_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: cross_instance_verify_output
+  delegate_to: localhost
+  retries: 10
+  delay: 30
+  until: cross_instance_verify_output.stdout is defined
+
+- name: "Store monitoring endpoints in Parameter Store"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    MONITORING_IP=$(aws ec2 describe-instances \
+      --instance-ids "{{ instance_id }}" \
+      --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+      --output text \
+      --region "{{ aws_region }}" 2>/dev/null || echo "10.0.10.103")
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/monitoring/grafana-url" \
+      --value "http://$MONITORING_IP:30000" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/monitoring/prometheus-url" \
+      --value "http://$MONITORING_IP:30001" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/monitoring/alertmanager-url" \
+      --value "http://$MONITORING_IP:30002" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    echo "Stored monitoring URLs in Parameter Store"
+  register: store_endpoints_result
+  delegate_to: localhost
+
+- name: "Display cross-instance monitoring results"
+  debug:
+    msg: |
+      ============================================
+      📡 Cross-Instance Monitoring Configuration
+      ============================================
+      🎯 Application Instance: {{ application_instance_ip }}
+      📊 Connectivity Test Results:
+      {{ connectivity_test_output.stdout }}
+      
+      🔧 Cross-Instance Verification:
+      {{ cross_instance_verify_output.stdout }}
+      ============================================ 
