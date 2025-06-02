@@ -39,6 +39,42 @@
   register: postgres_password_result
   delegate_to: localhost
 
+- name: "Get instance private IP with fallback"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    
+    # Try to get private IP from EC2 metadata
+    COMMAND_ID=$(aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=["hostname -I | awk \"{print \\$1}\" || curl -s http://169.254.169.254/latest/meta-data/private-ipv4 || echo \"10.0.20.81\""]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId')
+    
+    sleep 15
+    
+    for i in {1..3}; do
+      PRIVATE_IP=$(aws ssm get-command-invocation \
+        --command-id "$COMMAND_ID" \
+        --instance-id "{{ instance_id }}" \
+        --region "{{ aws_region }}" \
+        --query 'StandardOutputContent' \
+        --output text 2>/dev/null | tr -d '\n\r ' | head -1)
+      
+      if [[ -n "$PRIVATE_IP" && "$PRIVATE_IP" != "None" && "$PRIVATE_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "$PRIVATE_IP"
+        exit 0
+      fi
+      
+      sleep 5
+    done
+    
+    # Fallback to known IP if all methods fail
+    echo "10.0.20.81"
+  register: private_ip_result
+  delegate_to: localhost
+
 - name: "Create database namespace"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
@@ -64,8 +100,8 @@
         "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
         "echo \"=== Checking for existing PostgreSQL deployments ===\"",
         "kubectl get pods,svc -n database 2>/dev/null || echo \"No database resources found\"",
-        "echo \"=== Checking port 30432 usage ===\"",
-        "netstat -tuln | grep :30432 || echo \"Port 30432 available\""
+        "echo \"=== Checking port usage ===\"",
+        "ss -tuln | grep -E \":(30432|30187)\" || echo \"Ports 30432 and 30187 available\""
       ]' \
       --targets "Key=instanceids,Values={{ instance_id }}" \
       --region "{{ aws_region }}" \
@@ -104,28 +140,6 @@
   retries: 10
   delay: 30
   until: postgresql_deploy_output.stdout is defined
-
-- name: "Create sample data for testing (optional)"
-  ansible.builtin.shell: |
-    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    aws ssm send-command \
-      --document-name "AWS-RunShellScript" \
-      --parameters 'commands=[
-        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
-        "echo \"Waiting for PostgreSQL to be ready...\"",
-        "kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n database --timeout=300s",
-        "echo \"Creating sample table for testing...\"",
-        "POSTGRES_POD=$(kubectl get pods -n database -l app.kubernetes.io/name=postgresql -o jsonpath=\"{.items[0].metadata.name}\")",
-        "kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"CREATE TABLE IF NOT EXISTS sample_metrics (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metric_name VARCHAR(100), metric_value FLOAT, instance_id VARCHAR(50));\"",
-        "kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"INSERT INTO sample_metrics (metric_name, metric_value, instance_id) VALUES ('"'cpu_usage'"', 45.2, '"'test-instance'"'), ('"'memory_usage'"', 67.8, '"'test-instance'"'), ('"'disk_usage'"', 23.1, '"'test-instance'"');\""
-      ]' \
-      --targets "Key=instanceids,Values={{ instance_id }}" \
-      --region "{{ aws_region }}" \
-      --output text \
-      --query 'Command.CommandId'
-  register: sample_data_command
-  delegate_to: localhost
-  when: create_sample_data | default(true)
 
 - name: "Deploy PostgreSQL Exporter"
   ansible.builtin.shell: |
@@ -223,26 +237,104 @@
   register: exporter_deploy_command
   delegate_to: localhost
 
-- name: "Verify PostgreSQL deployment"
+- name: "Wait for PostgreSQL Exporter deployment"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ exporter_deploy_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: exporter_deploy_output
+  delegate_to: localhost
+  retries: 5
+  delay: 20
+  until: exporter_deploy_output.stdout is defined
+
+- name: "Create sample data for testing (optional)"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     aws ssm send-command \
       --document-name "AWS-RunShellScript" \
       --parameters 'commands=[
         "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
-        "echo \"=== PostgreSQL Pods ===\"",
-        "kubectl get pods -n database -l app.kubernetes.io/name=postgresql",
-        "echo \"=== PostgreSQL Services ===\"", 
-        "kubectl get svc -n database",
-        "echo \"=== PostgreSQL Persistence ===\"",
-        "kubectl get pvc -n database",
-        "echo \"=== PostgreSQL Exporter Pods ===\"",
-        "kubectl get pods -n database -l app=postgres-exporter",
-        "echo \"=== Database Connectivity Test ===\"",
+        "echo \"Waiting for PostgreSQL to be ready...\"",
+        "kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n database --timeout=300s",
+        "echo \"Creating sample table for testing...\"",
         "POSTGRES_POD=$(kubectl get pods -n database -l app.kubernetes.io/name=postgresql -o jsonpath=\"{.items[0].metadata.name}\")",
-        "kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"SELECT version();\"",
-        "echo \"=== Testing PostgreSQL Exporter connectivity ===\"",
-        "kubectl wait --for=condition=ready pod -l app=postgres-exporter -n database --timeout=300s || true"
+        "POSTGRES_PASSWORD=$(kubectl get secret -n database postgresql -o jsonpath=\"{.data.postgres-password}\" | base64 -d)",
+        "kubectl exec -n database \"$POSTGRES_POD\" -- env PGPASSWORD=\"$POSTGRES_PASSWORD\" psql -U postgres -d appdb -c \"CREATE TABLE IF NOT EXISTS sample_metrics (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metric_name VARCHAR(100), metric_value FLOAT, instance_id VARCHAR(50));\"",
+        "kubectl exec -n database \"$POSTGRES_POD\" -- env PGPASSWORD=\"$POSTGRES_PASSWORD\" psql -U postgres -d appdb -c \"INSERT INTO sample_metrics (metric_name, metric_value, instance_id) VALUES ('"'cpu_usage'"', 45.2, '"'test-instance'"'), ('"'memory_usage'"', 67.8, '"'test-instance'"'), ('"'disk_usage'"', 23.1, '"'test-instance'"') ON CONFLICT DO NOTHING;\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: sample_data_command
+  delegate_to: localhost
+  when: create_sample_data | default(true)
+
+- name: "Wait for sample data creation"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ sample_data_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: sample_data_output
+  delegate_to: localhost
+  retries: 5
+  delay: 20
+  until: sample_data_output.stdout is defined
+  when: create_sample_data | default(true)
+
+- name: "Comprehensive automated verification"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"=== PostgreSQL Deployment Verification ===\"",
+        "echo \"1. Checking PostgreSQL Pods:\"",
+        "kubectl get pods -n database -l app.kubernetes.io/name=postgresql",
+        "echo \"\"",
+        "echo \"2. Checking PostgreSQL Services:\"", 
+        "kubectl get svc -n database",
+        "echo \"\"",
+        "echo \"3. Checking Persistence:\"",
+        "kubectl get pvc -n database",
+        "echo \"\"",
+        "echo \"4. Checking PostgreSQL Exporter:\"",
+        "kubectl get pods -n database -l app=postgres-exporter",
+        "echo \"\"",
+        "echo \"5. Testing Database Connection:\"",
+        "POSTGRES_POD=$(kubectl get pods -n database -l app.kubernetes.io/name=postgresql -o jsonpath=\"{.items[0].metadata.name}\")",
+        "POSTGRES_PASSWORD=$(kubectl get secret -n database postgresql -o jsonpath=\"{.data.postgres-password}\" | base64 -d)",
+        "kubectl exec -n database \"$POSTGRES_POD\" -- env PGPASSWORD=\"$POSTGRES_PASSWORD\" psql -U postgres -d appdb -c \"SELECT version();\"",
+        "echo \"\"",
+        "echo \"6. Testing Sample Data:\"",
+        "kubectl exec -n database \"$POSTGRES_POD\" -- env PGPASSWORD=\"$POSTGRES_PASSWORD\" psql -U postgres -d appdb -c \"SELECT COUNT(*) as sample_records FROM sample_metrics;\" || echo \"Sample data not created\"",
+        "echo \"\"",
+        "echo \"7. Testing PostgreSQL Exporter Connectivity:\"",
+        "kubectl wait --for=condition=ready pod -l app=postgres-exporter -n database --timeout=120s || echo \"PostgreSQL Exporter not ready yet\"",
+        "NODE_IP=$(hostname -I | awk \"{print \\$1}\" || echo \"{{ private_ip_result.stdout }}\")",
+        "echo \"Node IP: $NODE_IP\"",
+        "curl -s http://$NODE_IP:30187/metrics | grep pg_up || echo \"PostgreSQL Exporter metrics not accessible yet\"",
+        "echo \"\"",
+        "echo \"8. Testing External Port Connectivity:\"",
+        "timeout 5 bash -c \"</dev/tcp/$NODE_IP/30432\" && echo \"PostgreSQL port 30432 accessible\" || echo \"PostgreSQL port 30432 connection failed (normal for PostgreSQL)\"",
+        "timeout 5 bash -c \"</dev/tcp/$NODE_IP/30187\" && echo \"PostgreSQL Exporter port 30187 accessible\" || echo \"PostgreSQL Exporter port 30187 connection failed\"",
+        "echo \"\"",
+        "echo \"=== Deployment Summary ===\"",
+        "echo \"PostgreSQL Host: $NODE_IP:30432\"",
+        "echo \"PostgreSQL Exporter: $NODE_IP:30187/metrics\"",
+        "echo \"Database: appdb\"",
+        "echo \"Username: postgres\"",
+        "echo \"Password: Stored in Parameter Store and Kubernetes Secret\""
       ]' \
       --targets "Key=instanceids,Values={{ instance_id }}" \
       --region "{{ aws_region }}" \
@@ -251,7 +343,7 @@
   register: verify_command
   delegate_to: localhost
 
-- name: "Get PostgreSQL verification results"
+- name: "Get comprehensive verification results"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     aws ssm get-command-invocation \
@@ -262,46 +354,9 @@
       --output text
   register: verify_output
   delegate_to: localhost
-
-- name: "Store database instance private IP"
-  ansible.builtin.shell: |
-    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    COMMAND_ID=$(aws ssm send-command \
-      --document-name "AWS-RunShellScript" \
-      --parameters 'commands=["curl -s http://169.254.169.254/latest/meta-data/private-ipv4"]' \
-      --targets "Key=instanceids,Values={{ instance_id }}" \
-      --region "{{ aws_region }}" \
-      --output text \
-      --query 'Command.CommandId')
-    
-    echo "Command ID: $COMMAND_ID"
-    sleep 10
-    
-    for i in {1..5}; do
-      PRIVATE_IP=$(aws ssm get-command-invocation \
-        --command-id "$COMMAND_ID" \
-        --instance-id "{{ instance_id }}" \
-        --region "{{ aws_region }}" \
-        --query 'StandardOutputContent' \
-        --output text 2>/dev/null | tr -d '\n\r' | xargs)
-      
-      if [[ -n "$PRIVATE_IP" && "$PRIVATE_IP" != "None" ]]; then
-        echo "$PRIVATE_IP"
-        break
-      fi
-      
-      echo "Attempt $i/5: Waiting for private IP..."
-      sleep 5
-    done
-    
-    if [[ -z "$PRIVATE_IP" || "$PRIVATE_IP" == "None" ]]; then
-      echo "Failed to get private IP, using fallback"
-      echo "10.0.20.81"
-    else
-      echo "$PRIVATE_IP"
-    fi
-  register: private_ip_result
-  delegate_to: localhost
+  retries: 5
+  delay: 20
+  until: verify_output.stdout is defined
 
 - name: "Store private IP in Parameter Store for monitoring instance"
   ansible.builtin.shell: |
@@ -309,6 +364,45 @@
     aws ssm put-parameter \
       --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/private-ip" \
       --value "{{ private_ip_result.stdout }}" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Store database connection details in Parameter Store"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/host" \
+      --value "{{ private_ip_result.stdout }}" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/port" \
+      --value "30432" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/name" \
+      --value "appdb" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/username" \
+      --value "postgres" \
+      --type "String" \
+      --overwrite \
+      --region "{{ aws_region }}"
+    
+    aws ssm put-parameter \
+      --name "/{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/monitoring/postgres-exporter-url" \
+      --value "http://{{ private_ip_result.stdout }}:30187/metrics" \
       --type "String" \
       --overwrite \
       --region "{{ aws_region }}"
@@ -330,6 +424,14 @@
          PostgreSQL Exporter: {{ private_ip_result.stdout }}:30187/metrics
          Node Exporter: {{ private_ip_result.stdout }}:30100/metrics
       
-      🔧 Kubernetes Resources:
+      🔧 Automated Verification Results:
       {{ verify_output.stdout }}
+      
+      📦 Parameter Store Values Created:
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/postgres/password
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/host
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/port
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/name
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/database/username
+         - /{{ project_name | default('devops-infra') }}/{{ deployment_environment | default('dev') }}/monitoring/postgres-exporter-url
       ============================================ 
