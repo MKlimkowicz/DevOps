@@ -7,11 +7,12 @@ data "aws_iam_instance_profile" "ec2_profile" {
 locals {
   user_data_scripts = var.user_data_script != "" ? split(",", var.user_data_script) : []
 
-  user_data = base64encode(templatefile("${path.root}/scripts/user-data-template.sh", {
-    project_name  = var.project_name
-    environment   = var.environment
-    instance_name = var.instance_name
-    scripts       = local.user_data_scripts
+  user_data = base64encode(templatefile("${path.root}/scripts/user-data-bootstrap.sh", {
+    project_name     = var.project_name
+    environment      = var.environment
+    instance_name    = var.instance_name
+    deploy_database  = var.deploy_database
+    scripts          = join(",", local.user_data_scripts)
   }))
 }
 

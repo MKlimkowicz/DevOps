@@ -58,3 +58,9 @@ variable "user_data_script" {
   type        = string
   default     = ""
 }
+
+variable "deploy_database" {
+  description = "Whether database is being deployed (passed to scripts)"
+  type        = bool
+  default     = false
+}

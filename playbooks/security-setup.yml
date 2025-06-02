@@ -1,0 +1,110 @@
+---
+- name: Setup secure configuration for DevOps Infrastructure
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    terraform_dir: "../terraform-infra"
+    tfvars_file: "{{ terraform_dir }}/terraform.tfvars"
+    tfvars_example: "{{ terraform_dir }}/terraform.tfvars.example"
+    
+  tasks:
+    - name: "🔐 Setting up secure configuration for DevOps Infrastructure"
+      debug:
+        msg: "Starting security configuration setup..."
+
+    - name: "📡 Get public IP address"
+      uri:
+        url: https://ifconfig.me
+        method: GET
+        return_content: yes
+        timeout: 30
+      register: public_ip_response
+      retries: 3
+      delay: 5
+
+    - name: Check if public IP was retrieved successfully
+      fail:
+        msg: "❌ Failed to get public IP. Please check your internet connection."
+      when: public_ip_response.content is undefined or public_ip_response.content == ""
+
+    - name: Set public IP variable
+      set_fact:
+        public_ip: "{{ public_ip_response.content | trim }}"
+
+    - name: "✅ Display retrieved public IP"
+      debug:
+        msg: "Your public IP: {{ public_ip }}"
+
+    - name: Check if terraform.tfvars exists
+      stat:
+        path: "{{ tfvars_file }}"
+      register: tfvars_exists
+
+    - name: Check if terraform.tfvars.example exists
+      stat:
+        path: "{{ tfvars_example }}"
+      register: tfvars_example_exists
+      when: not tfvars_exists.stat.exists
+
+    - name: "📝 Create terraform.tfvars from example"
+      copy:
+        src: "{{ tfvars_example }}"
+        dest: "{{ tfvars_file }}"
+        remote_src: no
+      when: not tfvars_exists.stat.exists and tfvars_example_exists.stat.exists
+
+    - name: Fail if neither terraform.tfvars nor example exists
+      fail:
+        msg: "❌ Neither terraform.tfvars nor terraform.tfvars.example found in {{ terraform_dir }}"
+      when: not tfvars_exists.stat.exists and not tfvars_example_exists.stat.exists
+
+    - name: Create backup of current terraform.tfvars
+      copy:
+        src: "{{ tfvars_file }}"
+        dest: "{{ tfvars_file }}.bak.{{ ansible_date_time.epoch }}"
+        remote_src: no
+      when: tfvars_exists.stat.exists
+
+    - name: "🔧 Update IP addresses in terraform.tfvars"
+      replace:
+        path: "{{ tfvars_file }}"
+        regexp: 'YOUR_PUBLIC_IP'
+        replace: "{{ public_ip }}"
+        backup: yes
+
+    - name: Read updated terraform.tfvars to verify changes
+      slurp:
+        src: "{{ tfvars_file }}"
+      register: tfvars_content
+
+    - name: Verify IP replacement was successful
+      assert:
+        that:
+          - public_ip in (tfvars_content.content | b64decode)
+        fail_msg: "❌ IP replacement failed - YOUR_PUBLIC_IP still found in terraform.tfvars"
+        success_msg: "✅ IP addresses updated successfully in terraform.tfvars"
+
+    - name: "✅ Configuration updated successfully!"
+      debug:
+        msg: 
+          - "Configuration updated successfully!"
+          - ""
+          - "🔐 Security settings:"
+          - "   - ALB access restricted to: {{ public_ip }}/32"
+          - "   - SSH access restricted to: {{ public_ip }}/32"
+
+    - name: "🚀 Next steps"
+      debug:
+        msg:
+          - ""
+          - "🚀 You can now deploy with:"
+          - "   cd {{ terraform_dir }}"
+          - "   terraform init"
+          - "   terraform apply"
+          - ""
+          - "💡 If your IP changes, run this playbook again to update the configuration."
+
+    - name: Display terraform.tfvars location
+      debug:
+        msg: "📝 Updated file: {{ tfvars_file }}" 

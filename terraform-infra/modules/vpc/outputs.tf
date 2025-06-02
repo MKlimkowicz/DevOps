@@ -52,13 +52,3 @@ output "vpc_endpoints_security_group_id" {
   description = "ID of the VPC endpoints security group"
   value       = aws_security_group.vpc_endpoints.id
 }
-
-output "ssm_vpc_endpoint_id" {
-  description = "ID of the SSM VPC endpoint"
-  value       = aws_vpc_endpoint.ssm.id
-}
-
-output "logs_vpc_endpoint_id" {
-  description = "ID of the CloudWatch Logs VPC endpoint"
-  value       = aws_vpc_endpoint.logs.id
-}

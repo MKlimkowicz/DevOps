@@ -189,6 +189,24 @@ resource "aws_security_group" "database" {
     security_groups = [aws_security_group.lambda.id]
   }
 
+  # Node Exporter from monitoring instance
+  ingress {
+    description     = "Node Exporter from monitoring"
+    from_port       = 30100
+    to_port         = 30100
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
+  }
+
+  # PostgreSQL Exporter NodePort from monitoring instance
+  ingress {
+    description     = "PostgreSQL Exporter NodePort from monitoring"
+    from_port       = 30187
+    to_port         = 30187
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
+  }
+
   # PostgreSQL Exporter
   ingress {
     description     = "PostgreSQL Exporter"
@@ -196,15 +214,6 @@ resource "aws_security_group" "database" {
     to_port         = 9187
     protocol        = "tcp"
     security_groups = [aws_security_group.monitoring.id]
-  }
-
-  # Node Exporter
-  ingress {
-    description = "Node Exporter"
-    from_port   = 9100
-    to_port     = 9100
-    protocol    = "tcp"
-    self        = true
   }
 
   # Kubernetes API
@@ -278,7 +287,8 @@ resource "aws_iam_role_policy" "ec2_policy" {
         Action = [
           "ssm:GetParameter",
           "ssm:GetParameters",
-          "ssm:GetParametersByPath"
+          "ssm:GetParametersByPath",
+          "ssm:PutParameter"
         ]
         Resource = [
           "arn:aws:ssm:*:*:parameter/${var.project_name}/${var.environment}/*"
@@ -310,6 +320,12 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   tags = {
     Name = "${var.project_name}-${var.environment}-ec2-profile"
   }
+}
+
+# SSM Managed Instance Core Policy for Session Manager
+resource "aws_iam_role_policy_attachment" "ssm_managed_instance_core" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 # Lambda IAM Role
