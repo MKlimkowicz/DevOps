@@ -53,12 +53,6 @@ variable "enable_detailed_monitoring" {
   type        = bool
 }
 
-variable "user_data_script" {
-  description = "Comma-separated list of user data scripts to execute"
-  type        = string
-  default     = ""
-}
-
 variable "deploy_database" {
   description = "Whether database is being deployed (passed to scripts)"
   type        = bool

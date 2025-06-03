@@ -3,17 +3,33 @@ data "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project_name}-${var.environment}-ec2-profile"
 }
 
-# User data template
+# Minimal user data for basic setup - Ansible handles most functionality
 locals {
-  user_data_scripts = var.user_data_script != "" ? split(",", var.user_data_script) : []
-
-  user_data = base64encode(templatefile("${path.root}/scripts/user-data-bootstrap.sh", {
-    project_name     = var.project_name
-    environment      = var.environment
-    instance_name    = var.instance_name
-    deploy_database  = var.deploy_database
-    scripts          = join(",", local.user_data_scripts)
-  }))
+  user_data = base64encode(<<-EOT
+    #!/bin/bash
+    set -e
+    
+    # Basic logging
+    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+    echo "Starting minimal user data script for ${var.instance_name} instance at $(date)"
+    
+    # Update system
+    dnf update -y
+    
+    # Install essential packages including SSM agent
+    dnf install -y amazon-ssm-agent awscli
+    
+    # Ensure SSM agent is running
+    systemctl enable amazon-ssm-agent
+    systemctl start amazon-ssm-agent
+    
+    # Create directory for Ansible to use
+    mkdir -p /opt/ansible-setup
+    chown ec2-user:ec2-user /opt/ansible-setup
+    
+    echo "Basic setup completed at $(date). Ansible will handle additional configuration."
+    EOT
+  )
 }
 
 # EC2 Instance

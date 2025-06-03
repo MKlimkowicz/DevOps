@@ -131,7 +131,6 @@ module "monitoring_compute" {
   ebs_volume_type            = var.ebs_volume_type
   enable_detailed_monitoring = var.enable_detailed_monitoring
   deploy_database            = var.deploy_database
-  user_data_script           = "install-k3s.sh,setup-monitoring.sh"
 
   depends_on = [module.vpc, module.security]
 }
@@ -153,7 +152,6 @@ module "database_compute" {
   ebs_volume_type            = var.ebs_volume_type
   enable_detailed_monitoring = var.enable_detailed_monitoring
   deploy_database            = var.deploy_database
-  user_data_script           = "install-k3s.sh,setup-database.sh"
 
   depends_on = [module.vpc, module.security]
 }
