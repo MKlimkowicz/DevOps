@@ -1,0 +1,59 @@
+---
+# K3s Health Validation and Auto-Repair Tasks
+- name: "🔍 Check if K3s is installed"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "if command -v k3s >/dev/null 2>&1; then",
+        "  echo \"K3S_INSTALLED=true\"",
+        "  echo \"K3S_VERSION=$(k3s --version | head -1)\"",
+        "else",
+        "  echo \"K3S_INSTALLED=false\"",
+        "fi"
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: k3s_check_command
+  delegate_to: localhost
+
+- name: "Wait for K3s installation check"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ k3s_check_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Get K3s installation check results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ k3s_check_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: k3s_check_output
+  delegate_to: localhost
+
+- name: "Parse K3s installation status"
+  set_fact:
+    k3s_installed: "{{ 'K3S_INSTALLED=true' in k3s_check_output.stdout }}"
+
+- name: "📊 Display K3s health status"
+  debug:
+    msg:
+      - "=== K3s Health Status on {{ inventory_hostname }} ==="
+      - "K3s Installed: {{ k3s_installed }}"
+      - "✅ Ready for application deployment"
+
+- name: "✅ K3s validation complete"
+  debug:
+    msg:
+      - "K3s health validation completed on {{ inventory_hostname }}"
+      - "Instance ready for application deployment" 

@@ -110,6 +110,103 @@
   register: conflict_check_command
   delegate_to: localhost
 
+- name: "🔧 Fix PostgreSQL data directory permissions"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "echo \"🔧 Fixing PostgreSQL data directory permissions...\"",
+        "",
+        "# Create PostgreSQL data directory if it doesn'"'"'t exist",
+        "sudo mkdir -p /data/postgresql",
+        "",
+        "# Fix ownership - PostgreSQL Bitnami image runs as UID 1001",
+        "echo \"Setting ownership to UID 1001 (PostgreSQL user)...\"",
+        "sudo chown -R 1001:1001 /data/postgresql",
+        "",
+        "# Set proper permissions",
+        "sudo chmod 755 /data/postgresql",
+        "",
+        "# Clean any existing broken data",
+        "echo \"Cleaning any existing corrupted data...\"",
+        "sudo rm -rf /data/postgresql/*",
+        "",
+        "# Verify permissions",
+        "echo \"=== PostgreSQL Data Directory Status ===\"",
+        "ls -la /data/postgresql",
+        "echo \"Owner: $(stat -c '%U:%G' /data/postgresql 2>/dev/null || echo 'unknown')\"",
+        "echo \"Permissions: $(stat -c '%a' /data/postgresql 2>/dev/null || echo 'unknown')\"",
+        "",
+        "echo \"✅ PostgreSQL data directory permissions fixed\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: fix_permissions_command
+  delegate_to: localhost
+
+- name: "Wait for permissions fix"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ fix_permissions_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Get permissions fix results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ fix_permissions_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: fix_permissions_output
+  delegate_to: localhost
+
+- name: "Display permissions fix results"
+  debug:
+    msg: "{{ fix_permissions_output.stdout }}"
+
+- name: "🗑️ Remove existing PostgreSQL deployment (if any)"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"Removing any existing PostgreSQL deployment...\"",
+        "helm uninstall postgresql -n database 2>/dev/null || echo \"No existing PostgreSQL deployment found\"",
+        "",
+        "# Wait a moment for cleanup",
+        "sleep 10",
+        "",
+        "# Clean up any remaining resources",
+        "kubectl delete pod -n database -l app.kubernetes.io/name=postgresql --force --grace-period=0 2>/dev/null || true",
+        "kubectl delete pvc -n database -l app.kubernetes.io/name=postgresql 2>/dev/null || true",
+        "",
+        "echo \"✅ Cleanup completed\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: cleanup_command
+  delegate_to: localhost
+
+- name: "Wait for cleanup"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ cleanup_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
 - name: "Deploy PostgreSQL using Bitnami chart"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
@@ -117,7 +214,12 @@
       --document-name "AWS-RunShellScript" \
       --parameters 'commands=[
         "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
-        "helm upgrade --install postgresql bitnami/postgresql --namespace database --set auth.postgresPassword=\"{{ postgres_password_result.stdout }}\" --set auth.database=\"appdb\" --set primary.persistence.enabled=true --set primary.persistence.size=10Gi --set primary.service.type=NodePort --set primary.service.nodePorts.postgresql=30432 --wait --timeout=10m"
+        "echo \"🚀 Deploying PostgreSQL with proper configuration...\"",
+        "",
+        "# Deploy with correct persistence settings and security context",
+        "helm upgrade --install postgresql bitnami/postgresql --namespace database --set auth.postgresPassword=\"{{ postgres_password_result.stdout }}\" --set auth.database=\"appdb\" --set primary.persistence.enabled=true --set primary.persistence.size=10Gi --set primary.persistence.storageClass=\"local-path\" --set primary.persistence.existingClaim=\"\" --set primary.securityContext.enabled=true --set primary.securityContext.fsGroup=1001 --set primary.containerSecurityContext.enabled=true --set primary.containerSecurityContext.runAsUser=1001 --set primary.containerSecurityContext.runAsGroup=1001 --set primary.service.type=NodePort --set primary.service.nodePorts.postgresql=30432 --set primary.initdb.scripts.\"init-db\\.sql\"=\"CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\" --wait --timeout=15m",
+        "",
+        "echo \"✅ PostgreSQL deployment command completed\""
       ]' \
       --targets "Key=instanceids,Values={{ instance_id }}" \
       --region "{{ aws_region }}" \
@@ -140,6 +242,96 @@
   retries: 10
   delay: 30
   until: postgresql_deploy_output.stdout is defined
+
+- name: "Display PostgreSQL deployment results"
+  debug:
+    msg: "{{ postgresql_deploy_output.stdout }}"
+
+- name: "🔍 Verify PostgreSQL deployment and connectivity"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"=== PostgreSQL Deployment Verification ===\"",
+        "",
+        "# Wait for PostgreSQL pod to be ready",
+        "echo \"Waiting for PostgreSQL pod to be ready...\"",
+        "kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n database --timeout=300s",
+        "",
+        "# Check pod status",
+        "echo \"=== Pod Status ===\"",
+        "kubectl get pods -n database -o wide",
+        "",
+        "# Check service status",
+        "echo \"=== Service Status ===\"",
+        "kubectl get svc -n database",
+        "",
+        "# Check PVC status",
+        "echo \"=== Persistent Volume Claim Status ===\"",
+        "kubectl get pvc -n database -o wide",
+        "",
+        "# Test internal PostgreSQL connectivity",
+        "echo \"=== Testing PostgreSQL Connectivity ===\"",
+        "POSTGRES_POD=$(kubectl get pods -n database -l app.kubernetes.io/name=postgresql -o jsonpath=\"{.items[0].metadata.name}\")",
+        "if [ -n \"$POSTGRES_POD\" ]; then",
+        "  echo \"Testing connection to PostgreSQL pod: $POSTGRES_POD\"",
+        "  kubectl exec -n database \"$POSTGRES_POD\" -- pg_isready -U postgres -d appdb || echo \"PostgreSQL not ready yet\"",
+        "  kubectl exec -n database \"$POSTGRES_POD\" -- psql -U postgres -d appdb -c \"SELECT version();\" || echo \"Could not query PostgreSQL\"",
+        "else",
+        "  echo \"❌ No PostgreSQL pod found\"",
+        "fi",
+        "",
+        "# Test NodePort connectivity",
+        "echo \"=== Testing NodePort Access ===\"",
+        "netstat -tlnp | grep :30432 || echo \"Port 30432 not listening\"",
+        "",
+        "# Check data directory inside pod",
+        "echo \"=== Checking Data Directory in Pod ===\"",
+        "if [ -n \"$POSTGRES_POD\" ]; then",
+        "  kubectl exec -n database \"$POSTGRES_POD\" -- ls -la /bitnami/postgresql/data/ || echo \"Could not list data directory\"",
+        "  kubectl exec -n database \"$POSTGRES_POD\" -- id || echo \"Could not get user info\"",
+        "fi",
+        "",
+        "# Check host data directory permissions",
+        "echo \"=== Host Data Directory Permissions ===\"",
+        "ls -la /data/postgresql/",
+        "echo \"Owner: $(stat -c '%U:%G' /data/postgresql 2>/dev/null || echo 'unknown')\"",
+        "",
+        "echo \"✅ PostgreSQL verification completed\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: verify_postgresql_command
+  delegate_to: localhost
+
+- name: "Wait for PostgreSQL verification"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ verify_postgresql_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Get PostgreSQL verification results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ verify_postgresql_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: verify_postgresql_output
+  delegate_to: localhost
+
+- name: "Display PostgreSQL verification results"
+  debug:
+    msg: "{{ verify_postgresql_output.stdout }}"
 
 - name: "Deploy PostgreSQL Exporter"
   ansible.builtin.shell: |

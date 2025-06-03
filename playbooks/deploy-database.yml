@@ -4,6 +4,9 @@
   gather_facts: yes
     
   tasks:
+    - name: "🔍 Validate K3s Health and Auto-Repair"
+      include_tasks: tasks/validate-k3s-health.yml
+
     - name: "Deploy PostgreSQL with PostgreSQL Exporter"
       include_tasks: tasks/deploy-postgresql.yml
 
