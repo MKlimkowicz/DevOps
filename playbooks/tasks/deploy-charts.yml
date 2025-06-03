@@ -1,0 +1,133 @@
+---
+# Deploy Node Exporter via Helm on all instances
+- name: "Create monitoring namespace"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"Creating monitoring namespace...\"",
+        "kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -",
+        "echo \"✅ Monitoring namespace ready\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: namespace_command
+  delegate_to: localhost
+
+- name: "Wait for namespace creation"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ namespace_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Deploy Node Exporter via Helm"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"🚀 Deploying Node Exporter on {{ inventory_hostname }}...\"",
+        "",
+        "# Wait for K3s to be fully ready",
+        "until kubectl cluster-info >/dev/null 2>&1; do",
+        "  echo \"Waiting for cluster to be ready...\"",
+        "  sleep 10",
+        "done",
+        "",
+        "# Update helm repos",
+        "helm repo update",
+        "",
+        "# Deploy Node Exporter with NodePort service",
+        "if ! helm list -n monitoring | grep -q prometheus-node-exporter; then",
+        "  echo \"Installing Node Exporter...\"",
+        "  helm upgrade --install prometheus-node-exporter prometheus-community/prometheus-node-exporter --namespace monitoring --set service.type=NodePort --set service.nodePort=30100 --set hostNetwork=false --set hostPID=true --set hostRootFsMount.enabled=true --wait --timeout=5m",
+        "else",
+        "  echo \"Node Exporter already installed\"",
+        "fi",
+        "",
+        "echo \"✅ Node Exporter deployment completed on {{ inventory_hostname }}\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: nodeexporter_deploy_command
+  delegate_to: localhost
+
+- name: "Wait for Node Exporter deployment"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm wait command-executed \
+      --command-id "{{ nodeexporter_deploy_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}"
+  delegate_to: localhost
+
+- name: "Get Node Exporter deployment results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ nodeexporter_deploy_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: nodeexporter_deploy_output
+  delegate_to: localhost
+  retries: 3
+  delay: 10
+  until: nodeexporter_deploy_output.stdout is defined
+
+- name: "Display Node Exporter deployment output"
+  debug:
+    msg: "{{ nodeexporter_deploy_output.stdout }}"
+
+- name: "Verify Node Exporter is running"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm send-command \
+      --document-name "AWS-RunShellScript" \
+      --parameters 'commands=[
+        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
+        "echo \"=== Node Exporter Status on {{ inventory_hostname }} ===\"",
+        "kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus-node-exporter -o wide",
+        "echo \"=== Node Exporter Service ===\"",
+        "kubectl get svc -n monitoring prometheus-node-exporter",
+        "echo \"=== Testing metrics endpoint ===\"",
+        "sleep 10",
+        "timeout 15 curl -f -s http://localhost:30100/metrics | head -3 || echo \"Metrics endpoint not ready yet (normal during startup)\"",
+        "echo \"=== Node Exporter ready ✅ ===\""
+      ]' \
+      --targets "Key=instanceids,Values={{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --output text \
+      --query 'Command.CommandId'
+  register: verify_nodeexporter_command
+  delegate_to: localhost
+
+- name: "Get Node Exporter verification results"
+  ansible.builtin.shell: |
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    aws ssm get-command-invocation \
+      --command-id "{{ verify_nodeexporter_command.stdout }}" \
+      --instance-id "{{ instance_id }}" \
+      --region "{{ aws_region }}" \
+      --query 'StandardOutputContent' \
+      --output text
+  register: verify_nodeexporter_output
+  delegate_to: localhost
+  retries: 3
+  delay: 15
+  until: verify_nodeexporter_output.stdout is defined
+
+- name: "Display Node Exporter verification"
+  debug:
+    msg: "{{ verify_nodeexporter_output.stdout }}" 

@@ -2,7 +2,7 @@
 - name: Setup secure configuration for DevOps Infrastructure
   hosts: localhost
   connection: local
-  gather_facts: no
+  gather_facts: yes
   vars:
     terraform_dir: "../terraform-infra"
     tfvars_file: "{{ terraform_dir }}/terraform.tfvars"
@@ -15,7 +15,7 @@
 
     - name: "📡 Get public IP address"
       uri:
-        url: https://ifconfig.me
+        url: https://ifconfig.me/ip
         method: GET
         return_content: yes
         timeout: 30
@@ -66,11 +66,18 @@
         remote_src: no
       when: tfvars_exists.stat.exists
 
-    - name: "🔧 Update IP addresses in terraform.tfvars"
+    - name: "🔧 Update allowed_cidr_blocks in terraform.tfvars"
       replace:
         path: "{{ tfvars_file }}"
-        regexp: 'YOUR_PUBLIC_IP'
-        replace: "{{ public_ip }}"
+        regexp: '^allowed_cidr_blocks\s*=\s*\[.*\]'
+        replace: 'allowed_cidr_blocks = ["{{ public_ip }}/32"]'
+        backup: yes
+
+    - name: "🔧 Update ssh_cidr_blocks in terraform.tfvars"  
+      replace:
+        path: "{{ tfvars_file }}"
+        regexp: '^ssh_cidr_blocks\s*=\s*\[.*\]'
+        replace: 'ssh_cidr_blocks     = ["{{ public_ip }}/32"]'
         backup: yes
 
     - name: Read updated terraform.tfvars to verify changes

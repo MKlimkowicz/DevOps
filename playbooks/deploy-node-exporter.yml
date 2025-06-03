@@ -4,11 +4,11 @@
   gather_facts: yes
   
   tasks:
+    - name: "System Bootstrap and Infrastructure Setup"
+      include_tasks: tasks/system-bootstrap.yml
+
     - name: "Deploy Helm Charts to Instances"
       include_tasks: tasks/deploy-charts.yml
-
-    - name: "System Bootstrap and Node Exporter Installation"
-      include_tasks: tasks/system-bootstrap.yml
 
     - name: "Final Verification"
       ansible.builtin.shell: |

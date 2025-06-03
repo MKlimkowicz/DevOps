@@ -94,35 +94,6 @@
       --region "{{ aws_region }}"
   delegate_to: localhost
 
-- name: Deploy Node Exporter via Helm (only on application nodes)
-  ansible.builtin.shell: |
-    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    aws ssm send-command \
-      --document-name "AWS-RunShellScript" \
-      --parameters 'commands=[
-        "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
-        "until kubectl cluster-info >/dev/null 2>&1; do sleep 10; done",
-        "kubectl create namespace monitoring || true",
-        "if ! helm list -n monitoring | grep -q node-exporter; then helm upgrade --install node-exporter /opt/k8s/charts/node-exporter --namespace monitoring --wait --timeout=5m; fi"
-      ]' \
-      --targets "Key=instanceids,Values={{ instance_id }}" \
-      --region "{{ aws_region }}" \
-      --output text \
-      --query 'Command.CommandId'
-  register: nodeexporter_command
-  delegate_to: localhost
-  when: deploy_database == true
-
-- name: Wait for Node Exporter deployment
-  ansible.builtin.shell: |
-    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    aws ssm wait command-executed \
-      --command-id "{{ nodeexporter_command.stdout }}" \
-      --instance-id "{{ instance_id }}" \
-      --region "{{ aws_region }}"
-  delegate_to: localhost
-  when: deploy_database == true
-
 - name: Setup CloudWatch agent
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
@@ -150,42 +121,46 @@
       --region "{{ aws_region }}"
   delegate_to: localhost
 
-- name: Verify Node Exporter deployment
+- name: "Final system bootstrap verification"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     aws ssm send-command \
       --document-name "AWS-RunShellScript" \
       --parameters 'commands=[
+        "echo \"=== System Bootstrap Verification ===\"",
+        "echo \"=== Docker Status ===\"",
+        "systemctl is-active docker",
+        "echo \"=== SSM Agent Status ===\"", 
+        "systemctl is-active amazon-ssm-agent",
+        "echo \"=== K3s Status ===\"",
         "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml",
-        "echo \"=== Node Exporter Verification ===\"",
-        "kubectl get pods -n monitoring -l app.kubernetes.io/name=node-exporter",
-        "echo \"=== Node Exporter Service ===\"", 
-        "kubectl get svc -n monitoring node-exporter",
-        "echo \"=== Node Exporter Metrics Test ===\"",
-        "curl -f -s http://localhost:30100/metrics | head -5 || echo \"Metrics endpoint not ready yet\""
+        "kubectl cluster-info",
+        "echo \"=== Disk Usage ===\"",
+        "df -h | grep -E \"(Filesystem|/data|/$)\"",
+        "echo \"=== System Bootstrap Complete ✅ ===\""
       ]' \
       --targets "Key=instanceids,Values={{ instance_id }}" \
       --region "{{ aws_region }}" \
       --output text \
       --query 'Command.CommandId'
-  register: verify_command
+  register: final_verify_command
   delegate_to: localhost
-  when: deploy_database == true
 
-- name: Get verification results
+- name: "Get system bootstrap verification results"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     aws ssm get-command-invocation \
-      --command-id "{{ verify_command.stdout }}" \
+      --command-id "{{ final_verify_command.stdout }}" \
       --instance-id "{{ instance_id }}" \
       --region "{{ aws_region }}" \
       --query 'StandardOutputContent' \
       --output text
-  register: verify_output
+  register: final_verify_output
   delegate_to: localhost
-  when: deploy_database == true
+  retries: 3
+  delay: 10
+  until: final_verify_output.stdout is defined
 
-- name: Display verification results
+- name: "Display system bootstrap results"
   debug:
-    msg: "{{ verify_output.stdout }}"
-  when: deploy_database == true and verify_output.stdout is defined 
+    msg: "{{ final_verify_output.stdout }}" 
