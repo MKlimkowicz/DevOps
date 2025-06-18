@@ -282,7 +282,7 @@
           - "📊 Instance: {{ instance_id }} ({{ private_ip }})"
           - "🔌 Connect: aws ssm start-session --target {{ instance_id }} --region {{ aws_region }}"
           - "✅ Test: kubectl get nodes && helm repo list"
-          - "🚀 Ready for Phase 2!"
+          - "🚀 Ready for Phase 2!" 
       when: not k3s_exists
 
     - name: "✅ K3s setup complete"
