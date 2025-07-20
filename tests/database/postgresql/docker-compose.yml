@@ -1,0 +1,24 @@
+services:
+  postgresql:
+    image: postgres:16
+    container_name: postgres-test
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=devops-test-password
+      - POSTGRES_DB=appdb
+    volumes:
+      - postgresql_data:/bitnami/postgresql
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgresql_data:
+    driver: local 
