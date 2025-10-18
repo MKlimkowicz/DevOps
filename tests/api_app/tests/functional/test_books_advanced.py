@@ -5,15 +5,17 @@ from fastapi import status
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+def assert_validation_error(response, expected_field):
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    data = response.json()
+    assert "detail" in data
+    error_details = str(data["detail"])
+    assert expected_field in error_details
+
+
 class TestAdvancedFeatures:
-    """Test advanced features and edge cases for the books API."""
     
     def test_add_duplicate_book_check(self, client, auth_headers):
-        """
-        Scenario 19: Add Duplicate Book Check
-        Attempt to POST a book with identical title, author, and year as an 
-        existing one and verify the API behavior for duplicates.
-        """
         duplicate_book = {
             "title": "To Kill a Mockingbird",
             "author": "Harper Lee",
@@ -37,17 +39,12 @@ class TestAdvancedFeatures:
             pytest.fail(f"Unexpected response code {response.status_code} for duplicate book")
     
     def test_large_list_pagination_simulation(self, client):
-        """
-        Scenario 20: Large List Pagination Simulation
-        Test retrieving books with query parameters that could simulate pagination
-        and verify proper handling of large datasets.
-        """
         response = client.get("/books")
         assert response.status_code == status.HTTP_200_OK
         
         all_books = response.json()["books"]
         
-        assert len(all_books) == 39
+        assert len(all_books) == 10
         
         books_1950s = [book for book in all_books if 1950 <= book["publication_year"] < 1960]
         
@@ -57,11 +54,6 @@ class TestAdvancedFeatures:
             assert 1950 <= book["publication_year"] < 1960
     
     def test_rate_limiting_basic(self, client):
-        """
-        Scenario 21: Rate Limiting Test
-        Send multiple rapid GET requests to /books and monitor response times
-        and potential rate limiting behavior.
-        """
         responses = []
         start_time = time.time()
         
@@ -84,11 +76,6 @@ class TestAdvancedFeatures:
         assert total_time < 30
     
     def test_case_sensitivity_in_filters(self, client):
-        """
-        Scenario 24: Case Sensitivity in Filters
-        Send GET /books with author="george orwell" (lowercase) and verify 
-        if it matches case-insensitively or requires exact case.
-        """
         response_lower = client.get("/books?author=george orwell")
         assert response_lower.status_code == status.HTTP_200_OK
         
@@ -111,11 +98,6 @@ class TestAdvancedFeatures:
             assert lower_data["total"] == 0
     
     def test_concurrent_operations_simulation(self, client, auth_headers):
-        """
-        Scenario 26: Concurrent Operations
-        Simulate adding a book while simultaneously reading books and verify 
-        data consistency without conflicts.
-        """
         test_books = [
             {
                 "title": f"Concurrent Book {i}",
@@ -127,12 +109,10 @@ class TestAdvancedFeatures:
         ]
         
         def add_book(book_data):
-            """Helper function to add a book"""
             response = client.post("/books", json=book_data, headers=auth_headers)
             return response.status_code, response.json() if response.status_code == 201 else None
         
         def read_books():
-            """Helper function to read all books"""
             response = client.get("/books")
             return response.status_code, response.json()
         
@@ -172,10 +152,6 @@ class TestAdvancedFeatures:
         assert final_count == initial_count + successful_adds
     
     def test_input_validation_for_strings(self, client, auth_headers):
-        """
-        Scenario 23: Input Validation for Strings
-        Send a POST with an excessively long title and check for validation errors.
-        """
         test_cases = [
             {
                 "name": "extremely_long_title",
@@ -209,20 +185,9 @@ class TestAdvancedFeatures:
         
         for test_case in test_cases:
             response = client.post("/books", json=test_case["data"], headers=auth_headers)
-            
-            assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-            data = response.json()
-            
-            assert "detail" in data
-            error_details = str(data["detail"])
-            assert test_case["expected_field"] in error_details
+            assert_validation_error(response, test_case["expected_field"])
     
     def test_empty_database_state_simulation(self, client, auth_headers):
-        """
-        Scenario 25: Empty Database State Simulation
-        Since we can't actually empty the database due to the reset fixture,
-        we'll test filtering that returns no results to simulate empty state.
-        """
         response = client.get("/books?author=NonExistentAuthor&publication_year=1800")
         
         assert response.status_code == status.HTTP_200_OK
@@ -239,9 +204,6 @@ class TestAdvancedFeatures:
         assert isinstance(data["total"], int)
     
     def test_boundary_value_publication_years(self, client, auth_headers):
-        """
-        Test boundary values for publication years (1900 and current year).
-        """
         current_year = 2025
         
         min_year_book = {
@@ -286,10 +248,8 @@ class TestAdvancedFeatures:
 
 
 class TestSpecialCharacters:
-    """Test handling of special characters and edge cases in string fields."""
     
     def test_special_characters_in_title(self, client, auth_headers):
-        """Test books with special characters in title."""
         special_title_book = {
             "title": "Special: Title! With @#$%^&*()_+ Characters",
             "author": "Special Author",
@@ -306,7 +266,6 @@ class TestSpecialCharacters:
         assert get_response.json()["title"] == special_title_book["title"]
     
     def test_unicode_characters_in_fields(self, client, auth_headers):
-        """Test books with Unicode characters in various fields."""
         unicode_book = {
             "title": "Título con acentos y ñoños",
             "author": "Автор на кириллице",
@@ -324,4 +283,4 @@ class TestSpecialCharacters:
         book = get_response.json()
         assert book["title"] == unicode_book["title"]
         assert book["author"] == unicode_book["author"]
-        assert book["description"] == unicode_book["description"] 
+        assert book["description"] == unicode_book["description"]

@@ -3,6 +3,8 @@ import asyncio
 import sys
 import os
 
+os.environ.setdefault("API_KEY", "test-api-key-for-testing")
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
@@ -12,25 +14,21 @@ from auth import API_KEY
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create an instance of the default event loop for the test session."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
 
 async def mock_rate_limit_dependency():
-    """Mock rate limiter that does nothing during tests"""
     pass
 
 
 async def mock_strict_rate_limit_dependency():
-    """Mock strict rate limiter that does nothing during tests"""
     pass
 
 
 @pytest.fixture
 def client():
-    """Create a test client for the FastAPI app."""
     from fastapi.testclient import TestClient
     from rate_limiter import rate_limit_dependency, strict_rate_limit_dependency
     
@@ -45,7 +43,6 @@ def client():
 
 @pytest.fixture
 async def async_client():
-    """Create an async test client for the FastAPI app."""
     import httpx
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), 
@@ -56,26 +53,22 @@ async def async_client():
 
 @pytest.fixture
 def auth_headers():
-    """Return authentication headers with valid API key."""
     return {"Authorization": f"Bearer {API_KEY}"}
 
 
 @pytest.fixture
 def invalid_auth_headers():
-    """Return authentication headers with invalid API key."""
     return {"Authorization": "Bearer invalid-key"}
 
 
 @pytest.fixture(autouse=True)
 def reset_database():
-    """Reset the database before each test to ensure clean state."""
     db.__init__()
     yield
 
 
 @pytest.fixture
 def sample_book_data():
-    """Return sample book data for testing."""
     return {
         "title": "Test Book",
         "author": "Test Author", 
@@ -86,7 +79,6 @@ def sample_book_data():
 
 @pytest.fixture
 def minimal_book_data():
-    """Return minimal required book data for testing."""
     return {
         "title": "Minimal Test Book",
         "author": "Minimal Author",
@@ -96,7 +88,6 @@ def minimal_book_data():
 
 @pytest.fixture
 def update_book_data():
-    """Return book data for update operations."""
     return {
         "title": "Updated Test Book",
         "author": "Updated Author",
@@ -107,7 +98,6 @@ def update_book_data():
 
 @pytest.fixture
 def invalid_book_data():
-    """Return various invalid book data for validation testing."""
     return {
         "future_year": {
             "title": "Future Book",
@@ -140,4 +130,54 @@ def invalid_book_data():
             "publication_year": 2020,
             "description": "C" * 1001
         }
-    } 
+    }
+
+
+@pytest.fixture
+def db_with_bulk_data():
+    from database import db
+    
+    db.__init__()
+    db.populate_bulk_data(100)
+    yield db
+    db.__init__()
+
+
+@pytest.fixture
+def db_with_large_dataset():
+    from database import db
+    
+    db.__init__()
+    db.populate_bulk_data(1000)
+    yield db
+    db.__init__()
+
+
+@pytest.fixture
+def performance_client(client):
+    from utils.performance import ResponseTimer
+    
+    client.timer = ResponseTimer()
+    return client
+
+
+@pytest.fixture
+def security_test_data():
+    from factories import malicious_input_generator, edge_case_generator
+    
+    return {
+        "malicious": malicious_input_generator(),
+        "edge_cases": edge_case_generator()
+    }
+
+
+@pytest.fixture
+def load_test_config():
+    return {
+        "concurrent_users_baseline": 10,
+        "concurrent_users_normal": 50,
+        "concurrent_users_high": 100,
+        "test_duration_seconds": 60,
+        "ramp_up_seconds": 10,
+        "think_time_seconds": 1
+    }

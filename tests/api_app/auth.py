@@ -1,17 +1,19 @@
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from typing import Optional
+import os
+from dotenv import load_dotenv
 
-API_KEY = "your-secret-api-key-12345"
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise ValueError("API_KEY environment variable is required. Please set it in your .env file.")
 
 security = HTTPBearer(auto_error=False)
 
 
 async def get_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Security(security)) -> str:
-    """
-    Validate API key for protected routes.
-    This is optional - some routes can be public while others require authentication.
-    """
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -30,5 +32,4 @@ async def get_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Secu
 
 
 def verify_api_key(api_key: str) -> bool:
-    """Simple API key verification function"""
-    return api_key == API_KEY 
+    return api_key == API_KEY
