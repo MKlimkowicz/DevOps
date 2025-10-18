@@ -7,49 +7,117 @@ This directory contains database tests for the DevOps infrastructure.
 ```
 tests/
 ├── database/
-│   └── postgresql/          # PostgreSQL specific tests
-│       ├── conftest.py      # PostgreSQL connection fixtures
-│       └── test_connection.py  # Basic connectivity tests
-├── requirements.txt         # Test dependencies
-└── README.md               # This file
+│   └── postgresql/
+│       ├── conftest.py
+│       ├── docker-compose.yml
+│       ├── pytest.ini
+│       ├── env.example
+│       ├── test_connection.py
+│       ├── init-scripts/
+│       └── tests/
+│           └── functional/
+├── requirements.txt
+└── README.md
 ```
 
 ## Setup
 
-1. Install dependencies:
+### 1. Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Ensure AWS credentials are configured:
+### 2. Configure Environment
+
+If setting up for the first time, copy the example environment file:
+
 ```bash
-aws configure
-# or use environment variables:
-# export AWS_ACCESS_KEY_ID=your_key
-# export AWS_SECRET_ACCESS_KEY=your_secret
-# export AWS_DEFAULT_REGION=eu-central-1
+cd tests/database/postgresql
+cp env.example .env
 ```
 
-## Running PostgreSQL Tests
+The `.env` file contains the database configuration with these defaults:
+- POSTGRES_USER=postgres
+- POSTGRES_PASSWORD=devops-test-password
+- POSTGRES_DB=appdb
+- POSTGRES_HOST=localhost
+- POSTGRES_PORT=5432
 
-From the project root directory:
+Modify these values in `.env` if needed for your environment.
+
+### 3. Start PostgreSQL
+
+The tests will automatically start the Docker container if it's not running:
 
 ```bash
-# Run all PostgreSQL tests
-pytest tests/database/postgresql/ -v
+cd tests/database/postgresql
+docker-compose up -d
+```
 
-# Run specific test
+## Running Tests
+
+### All Tests
+
+```bash
+pytest tests/database/postgresql/ -v
+```
+
+### Specific Test File
+
+```bash
+pytest tests/database/postgresql/tests/functional/test_basic_operations.py -v
+```
+
+### Specific Test
+
+```bash
 pytest tests/database/postgresql/test_connection.py::test_simple_select_one -v
+```
+
+### With Markers
+
+```bash
+pytest tests/database/postgresql/ -m functional -v
+pytest tests/database/postgresql/ -m "not slow" -v
+```
+
+### Parallel Execution
+
+```bash
+pytest tests/database/postgresql/ -n auto
 ```
 
 ## Prerequisites
 
-- AWS credentials with access to Parameter Store
-- Network access to PostgreSQL instance (10.0.20.81:30432)
-- PostgreSQL instance must be running and accessible
+- Docker and docker-compose installed
+- Python 3.8+
+- Sufficient disk space for PostgreSQL Docker volume
 
-## Future Extensions
+## Troubleshooting
 
-- Add `tests/application/` for application-specific tests
-- Add `tests/api/` for API tests
-- Add `tests/integration/` for integration tests 
+### Container Won't Start
+
+```bash
+docker-compose down -v
+docker-compose up -d
+```
+
+### Connection Issues
+
+Verify container is running:
+```bash
+docker ps | grep postgres-test
+```
+
+Check logs:
+```bash
+docker logs postgres-test
+```
+
+### Port Conflicts
+
+If port 5432 is already in use, modify `.env`:
+```
+POSTGRES_PORT=5433
+``` 
