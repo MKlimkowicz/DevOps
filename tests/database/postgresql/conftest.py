@@ -35,14 +35,12 @@ def ensure_postgres_running(db_config):
         )
         
         if "postgres-test" not in result.stdout:
-            print("Starting PostgreSQL container...")
             subprocess.run(
                 ["docker-compose", "up", "-d", "postgresql"],
                 cwd=os.path.dirname(os.path.abspath(__file__)),
                 check=True
             )
             
-            print("Waiting for PostgreSQL to be ready...")
             max_attempts = 30
             for attempt in range(max_attempts):
                 try:
@@ -53,7 +51,6 @@ def ensure_postgres_running(db_config):
                         check=True
                     )
                     if result.returncode == 0:
-                        print("PostgreSQL is ready!")
                         break
                 except subprocess.CalledProcessError:
                     pass
@@ -62,8 +59,6 @@ def ensure_postgres_running(db_config):
                     pytest.fail("PostgreSQL failed to start within expected time")
                 
                 time.sleep(2)
-        else:
-            print("PostgreSQL container is already running")
             
     except subprocess.CalledProcessError as e:
         pytest.fail(f"Failed to start PostgreSQL container: {e}")
@@ -85,12 +80,10 @@ def db_connection(db_config, ensure_postgres_running):
                 cursor_factory=RealDictCursor
             )
             connection.autocommit = True
-            print(f"Successfully connected to PostgreSQL database")
             break
         except psycopg2.OperationalError as e:
             if attempt == max_attempts - 1:
                 pytest.fail(f"Failed to connect to PostgreSQL after {max_attempts} attempts: {e}")
-            print(f"Connection attempt {attempt + 1} failed, retrying...")
             time.sleep(2)
     
     try:

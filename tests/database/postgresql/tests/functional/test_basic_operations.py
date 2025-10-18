@@ -76,7 +76,7 @@ def test_select_all_rows(create_tables, generate_ints, generate_floats, generate
 )], indirect=True)
 def test_select_specific_columns(create_tables, generate_ints, generate_bools, db_cursor):
     table_name = create_tables[0]
-    data = list(zip(generate_ints, [0]*5, [""] *5, [datetime.now()]*5, [date.today()]*5, generate_bools))  # Dummy for other columns
+    data = list(zip(generate_ints, [0]*5, [""] *5, [datetime.now()]*5, [date.today()]*5, generate_bools))
     for row in data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3, col4, col5, col6) VALUES (%s, %s, %s, %s, %s, %s);"
 , row)
@@ -100,7 +100,7 @@ def test_select_with_where_clause(create_tables, generate_ints, generate_bools, 
     for row in data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3, col4, col5, col6) VALUES (%s, %s, %s, %s, %s, %s);"
 , row)
-    threshold = generate_ints[2]  # Arbitrary threshold
+    threshold = generate_ints[2]
     db_cursor.execute(f"SELECT * FROM {table_name} WHERE col1 > %s OR col6 = TRUE;"
 , (threshold,))
     results = db_cursor.fetchall()
@@ -165,7 +165,6 @@ def test_delete_single_row(create_tables, generate_ints, db_cursor):
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3, col4, col5, col6) VALUES (%s, %s, %s, %s, %s, %s);"
 , row)
     unique_int = generate_ints[0]
-    # Check uniqueness
     db_cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE col1 = %s;"
 , (unique_int,))
     assert db_cursor.fetchone()['count'] == 1
