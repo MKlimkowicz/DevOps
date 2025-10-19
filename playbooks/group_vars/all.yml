@@ -44,3 +44,8 @@ network:
 # Logging configuration
 logging:
   k3s_log_retention_days: 7 
+
+# Safety toggles (defaults safe for prod)
+allow_format_data_volume: false
+force_reinit_postgresql_data: false
+wipe_postgres_release: false

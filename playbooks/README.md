@@ -20,7 +20,7 @@ Phase 1 replaces the foundational shell scripts with Ansible playbooks:
 2. **Manual Setup**:
    ```bash
    pip install ansible kubernetes boto3 botocore
-   ansible-galaxy collection install amazon.aws kubernetes.core
+   ansible-galaxy collection install -r requirements.yml
    # Install AWS Session Manager plugin (see setup script for details)
    ```
 
@@ -77,6 +77,7 @@ monitoring-instance:
 ```
 
 **Connection Method**: AWS SSM Session Manager (no bastion/VPN needed!)
+Dynamic inventory via `inventory/aws_ec2.yml` (requires tags).
 
 #### Variables (`group_vars/all.yml`)
 Global configuration for all playbooks:
@@ -84,6 +85,23 @@ Global configuration for all playbooks:
 - K3s and Helm versions
 - Directory paths
 - Network settings
+
+##### Safety toggles
+- `allow_format_data_volume` (default: false): allow creating filesystem on data volume if none exists.
+- `force_reinit_postgresql_data` (default: false): wipe `/data/postgresql/*` before deploy.
+- `wipe_postgres_release` (default: false): uninstall Helm release and delete PVCs before deploy.
+
+Usage examples:
+```bash
+# Format data volume on first bootstrap (explicit opt-in)
+ansible-playbook k3s-setup.yml -e allow_format_data_volume=true
+
+# Reinitialize Postgres data (DANGEROUS)
+ansible-playbook deploy-postgresql.yml -e force_reinit_postgresql_data=true
+
+# Fully wipe release and PVCs (DANGEROUS)
+ansible-playbook deploy-postgresql.yml -e wipe_postgres_release=true
+```
 
 ### Testing Phase 1
 

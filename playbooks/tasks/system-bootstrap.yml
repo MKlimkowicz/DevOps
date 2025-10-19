@@ -76,7 +76,18 @@
       --document-name "AWS-RunShellScript" \
       --parameters 'commands=[
         "sleep 10",
-        "for dev in nvme1n1 xvdf; do if [ -b \"/dev/$dev\" ] && ! mountpoint -q /data; then mkfs.ext4 -F \"/dev/$dev\" 2>/dev/null || true; mount \"/dev/$dev\" /data; echo \"/dev/$dev /data ext4 defaults,nofail 0 2\" >> /etc/fstab; chown -R ec2-user:ec2-user /data; break; fi; done"
+        "# Detect candidate device",
+        "CANDIDATE=\"\"; for dev in nvme1n1 xvdf; do if [ -b \"/dev/$dev\" ]; then CANDIDATE=$dev; break; fi; done",
+        "if [ -z \"$CANDIDATE\" ]; then echo \"No data device found\"; exit 0; fi",
+        "# Check if filesystem exists",
+        "if blkid \"/dev/$CANDIDATE\" >/dev/null 2>&1; then HAS_FS=1; else HAS_FS=0; fi",
+        "# Optionally create filesystem when explicitly allowed",
+        "if [ \"$HAS_FS\" -eq 0 ] && [ \"{{ allow_format_data_volume | default(false) | ternary('true','false') }}\" = \"true\" ]; then mkfs.ext4 -F \"/dev/$CANDIDATE\"; fi",
+        "# Ensure mountpoint exists",
+        "mkdir -p /data",
+        "# Mount if not mounted and ensure idempotent fstab entry",
+        "if ! mountpoint -q /data; then grep -q \"^/dev/$CANDIDATE[[:space:]]\+/data[[:space:]]\+ext4\" /etc/fstab || echo \"/dev/$CANDIDATE /data ext4 defaults,nofail 0 2\" >> /etc/fstab; mount /data || true; fi",
+        "chown -R ec2-user:ec2-user /data"
       ]' \
       --targets "Key=instanceids,Values={{ instance_id }}" \
       --region "{{ aws_region }}" \
