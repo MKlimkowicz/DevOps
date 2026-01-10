@@ -1,4 +1,3 @@
-# Network Outputs
 output "vpc_id" {
   description = "ID of the VPC"
   value       = module.vpc.vpc_id
@@ -14,7 +13,6 @@ output "private_subnet_ids" {
   value       = module.vpc.private_subnet_ids
 }
 
-# Security Outputs
 output "alb_sg_id" {
   description = "ID of the ALB security group"
   value       = module.security.alb_sg_id
@@ -30,7 +28,6 @@ output "database_sg_id" {
   value       = module.security.database_sg_id
 }
 
-# Load Balancer Outputs
 output "alb_dns_name" {
   description = "DNS name of the Application Load Balancer"
   value       = aws_lb.main.dns_name
@@ -41,7 +38,6 @@ output "alb_zone_id" {
   value       = aws_lb.main.zone_id
 }
 
-# Instance Outputs
 output "monitoring_instance_id" {
   description = "ID of the monitoring EC2 instance"
   value       = module.monitoring_compute.instance_id
@@ -62,7 +58,6 @@ output "database_private_ip" {
   value       = var.deploy_database ? module.database_compute[0].private_ip : null
 }
 
-# SSH Access Commands
 output "ssh_command_monitoring" {
   description = "SSH command to connect to monitoring instance"
   value       = "aws ssm start-session --target ${module.monitoring_compute.instance_id}"
@@ -73,7 +68,6 @@ output "ssh_command_database" {
   value       = var.deploy_database ? "aws ssm start-session --target ${module.database_compute[0].instance_id}" : "Database not deployed"
 }
 
-# Application Access
 output "grafana_url" {
   description = "URL to access Grafana"
   value       = "http://${aws_lb.main.dns_name}"
@@ -84,26 +78,23 @@ output "prometheus_url" {
   value       = "Connect via: kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090"
 }
 
-# PostgreSQL Connection Information
 output "postgresql_connection" {
   description = "PostgreSQL connection information"
   value = var.deploy_database ? {
-    host     = module.database_compute[0].private_ip
-    port     = "30432"
-    database = "appdb"
-    username = "postgres"
+    host             = module.database_compute[0].private_ip
+    port             = "30432"
+    database         = "appdb"
+    username         = "postgres"
     password_command = "aws ssm get-parameter --name '${aws_ssm_parameter.postgres_password[0].name}' --with-decryption --query 'Parameter.Value' --output text"
-    psql_command = "psql -h ${module.database_compute[0].private_ip} -p 30432 -U postgres -d appdb"
+    psql_command     = "psql -h ${module.database_compute[0].private_ip} -p 30432 -U postgres -d appdb"
   } : null
 }
 
-# SSH Key Information
 output "ssh_key_parameter_name" {
   description = "Parameter Store name for SSH private key"
   value       = var.key_pair_name == "" ? aws_ssm_parameter.private_key[0].name : "Using existing key pair: ${var.key_pair_name}"
 }
 
-# Secret Information
 output "grafana_password_parameter" {
   description = "Parameter Store name for Grafana admin password"
   value       = aws_ssm_parameter.grafana_password.name
@@ -116,7 +107,6 @@ output "postgres_password_parameter" {
   sensitive   = true
 }
 
-# Deployment Status
 output "deployment_summary" {
   description = "Summary of what was deployed"
   value = {
@@ -129,7 +119,6 @@ output "deployment_summary" {
   }
 }
 
-# Lambda Outputs
 output "lambda_function_name" {
   description = "Name of the Lambda function (if deployed)"
   value       = var.deploy_lambda && var.deploy_database ? module.lambda[0].lambda_function_name : null
@@ -145,46 +134,45 @@ output "lambda_invoke_command" {
   value       = var.deploy_lambda && var.deploy_database ? "aws lambda invoke --function-name ${module.lambda[0].lambda_function_name} --payload '{}' response.json && cat response.json" : "Lambda not deployed"
 }
 
-# 🚀 DEPLOYMENT COMPLETE - ACCESS INFORMATION
 output "access_information" {
   description = "Complete access information for all services"
   value = {
-    "🌐 GRAFANA_ACCESS" = {
-      url      = "http://${aws_lb.main.dns_name}"
-      username = "admin"
+    grafana = {
+      url          = "http://${aws_lb.main.dns_name}"
+      username     = "admin"
       password_cmd = "aws ssm get-parameter --name '${aws_ssm_parameter.grafana_password.name}' --with-decryption --query 'Parameter.Value' --output text"
     }
-    "📊 PROMETHEUS_ACCESS" = {
-      method = "SSH to monitoring instance, then:"
-      command = "kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090"
+    prometheus = {
+      method    = "SSH to monitoring instance, then:"
+      command   = "kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090"
       local_url = "http://localhost:9090"
     }
-    "🗄️ POSTGRESQL_ACCESS" = var.deploy_database ? {
-      host = module.database_compute[0].private_ip
-      port = "30432"
-      database = "appdb"
-      username = "postgres"
+    postgresql = var.deploy_database ? {
+      host         = module.database_compute[0].private_ip
+      port         = "30432"
+      database     = "appdb"
+      username     = "postgres"
       password_cmd = "aws ssm get-parameter --name '${aws_ssm_parameter.postgres_password[0].name}' --with-decryption --query 'Parameter.Value' --output text"
-      psql_cmd = "psql -h ${module.database_compute[0].private_ip} -p 30432 -U postgres -d appdb"
-      note = "Connect from monitoring instance or setup port forwarding"
-    } : {
+      psql_cmd     = "psql -h ${module.database_compute[0].private_ip} -p 30432 -U postgres -d appdb"
+      note         = "Connect from monitoring instance or setup port forwarding"
+      } : {
       status = "Not deployed"
-      note = "Set deploy_database=true to enable PostgreSQL"
+      note   = "Set deploy_database=true to enable PostgreSQL"
     }
-    "🔐 SSH_ACCESS" = {
+    ssh_access = {
       monitoring_instance = "aws ssm start-session --target ${module.monitoring_compute.instance_id}"
-      database_instance = var.deploy_database ? "aws ssm start-session --target ${module.database_compute[0].instance_id}" : "Not deployed"
+      database_instance   = var.deploy_database ? "aws ssm start-session --target ${module.database_compute[0].instance_id}" : "Not deployed"
     }
-    "🚀 LAMBDA_ACCESS" = var.deploy_lambda && var.deploy_database ? {
-      function_name = module.lambda[0].lambda_function_name
-      function_arn = module.lambda[0].lambda_function_arn
+    lambda = var.deploy_lambda && var.deploy_database ? {
+      function_name  = module.lambda[0].lambda_function_name
+      function_arn   = module.lambda[0].lambda_function_arn
       invoke_command = "aws lambda invoke --function-name ${module.lambda[0].lambda_function_name} --payload '{}' response.json"
-      logs_command = "aws logs tail /aws/lambda/${module.lambda[0].lambda_function_name} --follow"
-      note = "Lambda can connect to database via VPC with secure Parameter Store access"
-    } : {
+      logs_command   = "aws logs tail /aws/lambda/${module.lambda[0].lambda_function_name} --follow"
+      note           = "Lambda can connect to database via VPC with secure Parameter Store access"
+      } : {
       status = "Not deployed"
-      note = "Set deploy_lambda=true AND deploy_database=true to enable Lambda"
+      note   = "Set deploy_lambda=true AND deploy_database=true to enable Lambda"
     }
-    "⚠️ SECURITY_NOTE" = "Services are restricted to your IP. Update security groups if access issues occur."
+    security_note = "Services are restricted to your IP. Update security groups if access issues occur."
   }
 }

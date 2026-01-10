@@ -1,4 +1,3 @@
-# VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -9,7 +8,6 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Internet Gateway
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -18,7 +16,6 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Public Subnets
 resource "aws_subnet" "public" {
   count = length(var.public_subnet_cidrs)
 
@@ -33,7 +30,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# Private Subnets
 resource "aws_subnet" "private" {
   count = length(var.private_subnet_cidrs)
 
@@ -47,7 +43,6 @@ resource "aws_subnet" "private" {
   }
 }
 
-# Elastic IPs for NAT Gateways
 resource "aws_eip" "nat" {
   count = length(var.public_subnet_cidrs)
 
@@ -59,7 +54,6 @@ resource "aws_eip" "nat" {
   }
 }
 
-# NAT Gateways
 resource "aws_nat_gateway" "main" {
   count = length(var.public_subnet_cidrs)
 
@@ -73,7 +67,6 @@ resource "aws_nat_gateway" "main" {
   }
 }
 
-# Public Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -87,7 +80,6 @@ resource "aws_route_table" "public" {
   }
 }
 
-# Private Route Tables
 resource "aws_route_table" "private" {
   count = length(var.private_subnet_cidrs)
 
@@ -103,7 +95,6 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Public Route Table Associations
 resource "aws_route_table_association" "public" {
   count = length(var.public_subnet_cidrs)
 
@@ -111,7 +102,6 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# Private Route Table Associations
 resource "aws_route_table_association" "private" {
   count = length(var.private_subnet_cidrs)
 
@@ -119,7 +109,6 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[count.index].id
 }
 
-# VPC Flow Logs
 resource "aws_flow_log" "vpc" {
   iam_role_arn    = aws_iam_role.flow_log.arn
   log_destination = aws_cloudwatch_log_group.vpc_flow_log.arn
@@ -137,10 +126,6 @@ resource "aws_cloudwatch_log_group" "vpc_flow_log" {
 
   lifecycle {
     create_before_destroy = true
-    ignore_changes = [
-      # Ignore changes to these if managed outside Terraform
-      name,
-    ]
   }
 }
 
@@ -174,21 +159,24 @@ resource "aws_iam_role_policy" "flow_log" {
     Statement = [
       {
         Action = [
-          "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",
-          "logs:DescribeLogGroups",
           "logs:DescribeLogStreams"
         ]
         Effect   = "Allow"
-        Resource = "*"
+        Resource = "${aws_cloudwatch_log_group.vpc_flow_log.arn}:*"
+      },
+      {
+        Action = [
+          "logs:DescribeLogGroups"
+        ]
+        Effect   = "Allow"
+        Resource = "arn:aws:logs:${data.aws_region.current.name}:*:log-group:*"
       }
     ]
   })
 }
 
-# VPC Endpoints for Lambda Access to AWS Services
-# Security Group for VPC Endpoints
 resource "aws_security_group" "vpc_endpoints" {
   name_prefix = "${var.project_name}-${var.environment}-vpc-endpoints-"
   vpc_id      = aws_vpc.main.id
@@ -214,10 +202,8 @@ resource "aws_security_group" "vpc_endpoints" {
   }
 }
 
-# Data source for current AWS region
 data "aws_region" "current" {}
 
-# SSM Parameter Store VPC Endpoint
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.ssm"
@@ -231,7 +217,6 @@ resource "aws_vpc_endpoint" "ssm" {
   }
 }
 
-# SSM Messages VPC Endpoint (required for Session Manager)
 resource "aws_vpc_endpoint" "ssmmessages" {
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.ssmmessages"
@@ -245,7 +230,6 @@ resource "aws_vpc_endpoint" "ssmmessages" {
   }
 }
 
-# EC2 Messages VPC Endpoint (required for Session Manager)
 resource "aws_vpc_endpoint" "ec2messages" {
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.ec2messages"

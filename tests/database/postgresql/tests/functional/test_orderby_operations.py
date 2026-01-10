@@ -10,7 +10,6 @@ import random
 @pytest.mark.parametrize("generate_ints", [{"num_rows": 5}], indirect=True)
 def test_order_by_single_column_ascending(create_tables, generate_ints, db_cursor):
     table_name = create_tables[0]
-    # Shuffle to ensure unsorted insertion
     data = generate_ints[:]
     random.shuffle(data)
     for val in data:
@@ -198,9 +197,7 @@ def test_order_by_with_all_identical_values(create_tables, db_cursor):
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2) VALUES (%s, %s);", row)
     db_cursor.execute(f"SELECT col1, col2 FROM {table_name} ORDER BY col2 ASC;")
     results = [(row['col1'], row['col2']) for row in db_cursor.fetchall()]
-    # Assuming stable sort preserves insertion order
     assert results == data
-    # Also verify all col2 are 42
     assert all(r[1] == 42 for r in results)
 
 @pytest.mark.parametrize("create_tables", [{

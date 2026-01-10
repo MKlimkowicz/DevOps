@@ -1,29 +1,21 @@
-# Data source for IAM instance profile
 data "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project_name}-${var.environment}-ec2-profile"
 }
 
-# Minimal user data for basic setup - Ansible handles most functionality
 locals {
   user_data = base64encode(<<-EOT
-    #!/bin/bash
     set -e
     
-    # Basic logging
     exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
     echo "Starting minimal user data script for ${var.instance_name} instance at $(date)"
     
-    # Update system
     dnf update -y
     
-    # Install essential packages including SSM agent
     dnf install -y amazon-ssm-agent awscli
     
-    # Ensure SSM agent is running
     systemctl enable amazon-ssm-agent
     systemctl start amazon-ssm-agent
     
-    # Create directory for Ansible to use
     mkdir -p /opt/ansible-setup
     chown ec2-user:ec2-user /opt/ansible-setup
     
@@ -32,7 +24,6 @@ locals {
   )
 }
 
-# EC2 Instance
 resource "aws_instance" "main" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -66,7 +57,6 @@ resource "aws_instance" "main" {
   }
 }
 
-# Additional EBS Volume for application data
 resource "aws_ebs_volume" "app_data" {
   availability_zone = aws_instance.main.availability_zone
   size              = var.ebs_volume_size
@@ -78,14 +68,12 @@ resource "aws_ebs_volume" "app_data" {
   }
 }
 
-# Attach the additional EBS volume
 resource "aws_volume_attachment" "app_data" {
   device_name = "/dev/sdf"
   volume_id   = aws_ebs_volume.app_data.id
   instance_id = aws_instance.main.id
 }
 
-# CloudWatch Alarms
 resource "aws_cloudwatch_metric_alarm" "high_cpu" {
   alarm_name          = "${var.project_name}-${var.environment}-${var.instance_name}-high-cpu"
   comparison_operator = "GreaterThanThreshold"

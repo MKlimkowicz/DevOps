@@ -9,29 +9,47 @@ load_dotenv()
 
 
 class RateLimiter:
-    def __init__(self, max_requests: int = 100, window_seconds: int = 60):
+    def __init__(self, max_requests: int = 100, window_seconds: int = 60, cleanup_interval: int = 300):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.cleanup_interval = cleanup_interval
         self.requests: Dict[str, Deque[float]] = defaultdict(deque)
-    
+        self._last_cleanup = time.time()
+
+    def _cleanup_stale_clients(self) -> None:
+        now = time.time()
+        if now - self._last_cleanup < self.cleanup_interval:
+            return
+
+        stale_clients = [
+            client_ip for client_ip, requests in self.requests.items()
+            if not requests or requests[-1] <= now - self.window_seconds
+        ]
+        for client_ip in stale_clients:
+            del self.requests[client_ip]
+
+        self._last_cleanup = now
+
     def is_allowed(self, client_ip: str) -> bool:
         now = time.time()
-        
+
+        self._cleanup_stale_clients()
+
         client_requests = self.requests[client_ip]
         while client_requests and client_requests[0] <= now - self.window_seconds:
             client_requests.popleft()
-        
+
         if len(client_requests) >= self.max_requests:
             return False
-        
+
         client_requests.append(now)
         return True
-    
+
     def get_reset_time(self, client_ip: str) -> int:
         client_requests = self.requests[client_ip]
         if not client_requests:
             return 0
-        
+
         oldest_request = client_requests[0]
         reset_time = oldest_request + self.window_seconds
         return max(0, int(reset_time - time.time()))
@@ -49,7 +67,7 @@ strict_limiter = RateLimiter(
 
 async def rate_limit_dependency(request: Request):
     client_ip = request.client.host if request.client else "unknown"
-    
+
     if not general_limiter.is_allowed(client_ip):
         reset_time = general_limiter.get_reset_time(client_ip)
         raise HTTPException(
@@ -61,7 +79,7 @@ async def rate_limit_dependency(request: Request):
 
 async def strict_rate_limit_dependency(request: Request):
     client_ip = request.client.host if request.client else "unknown"
-    
+
     if not strict_limiter.is_allowed(client_ip):
         reset_time = strict_limiter.get_reset_time(client_ip)
         raise HTTPException(

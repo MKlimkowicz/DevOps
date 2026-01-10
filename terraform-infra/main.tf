@@ -1,4 +1,3 @@
-# Data sources
 data "aws_caller_identity" "current" {}
 
 data "aws_ami" "amazon_linux" {
@@ -16,7 +15,6 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# Generate random passwords if not provided
 resource "random_password" "grafana_password" {
   count   = var.grafana_admin_password == "" ? 1 : 0
   length  = 16
@@ -29,7 +27,6 @@ resource "random_password" "postgres_password" {
   special = true
 }
 
-# Store secrets in Parameter Store
 resource "aws_ssm_parameter" "grafana_password" {
   name  = "/${var.project_name}/${var.environment}/grafana/admin-password"
   type  = "SecureString"
@@ -51,7 +48,6 @@ resource "aws_ssm_parameter" "postgres_password" {
   }
 }
 
-# Database instance private IP parameter (for cross-instance monitoring)
 resource "aws_ssm_parameter" "database_private_ip" {
   count = var.deploy_database ? 1 : 0
   name  = "/${var.project_name}/${var.environment}/database/private-ip"
@@ -63,7 +59,6 @@ resource "aws_ssm_parameter" "database_private_ip" {
   }
 }
 
-# Create SSH key pair if not provided
 resource "tls_private_key" "ec2_key" {
   count     = var.key_pair_name == "" ? 1 : 0
   algorithm = "RSA"
@@ -80,7 +75,6 @@ resource "aws_key_pair" "ec2_key" {
   }
 }
 
-# Store private key in Parameter Store
 resource "aws_ssm_parameter" "private_key" {
   count = var.key_pair_name == "" ? 1 : 0
   name  = "/${var.project_name}/${var.environment}/ssh/private-key"
@@ -92,7 +86,6 @@ resource "aws_ssm_parameter" "private_key" {
   }
 }
 
-# VPC Module
 module "vpc" {
   source = "./modules/vpc"
 
@@ -104,7 +97,6 @@ module "vpc" {
   private_subnet_cidrs = var.private_subnet_cidrs
 }
 
-# Security Module
 module "security" {
   source = "./modules/security"
 
@@ -115,7 +107,6 @@ module "security" {
   ssh_cidr_blocks     = var.ssh_cidr_blocks
 }
 
-# Compute Module - Monitoring Instance
 module "monitoring_compute" {
   source = "./modules/compute"
 
@@ -135,7 +126,6 @@ module "monitoring_compute" {
   depends_on = [module.vpc, module.security]
 }
 
-# Compute Module - Database Instance (Conditional)
 module "database_compute" {
   count  = var.deploy_database ? 1 : 0
   source = "./modules/compute"
@@ -156,22 +146,20 @@ module "database_compute" {
   depends_on = [module.vpc, module.security]
 }
 
-# Lambda Module (Conditional)
 module "lambda" {
   count  = var.deploy_lambda && var.deploy_database ? 1 : 0
   source = "./modules/lambda"
 
-  project_name               = var.project_name
-  environment                = var.environment
-  lambda_role_arn            = module.security.lambda_role_arn
-  private_subnet_ids         = module.vpc.private_subnet_ids
-  lambda_security_group_id   = module.security.lambda_sg_id
-  database_host              = module.database_compute[0].private_ip
+  project_name             = var.project_name
+  environment              = var.environment
+  lambda_role_arn          = module.security.lambda_role_arn
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.security.lambda_sg_id
+  database_host            = module.database_compute[0].private_ip
 
   depends_on = [module.vpc, module.security, module.database_compute]
 }
 
-# Application Load Balancer
 resource "aws_lb" "main" {
   name               = "${var.project_name}-${var.environment}-alb"
   internal           = false
@@ -191,7 +179,6 @@ resource "aws_lb" "main" {
   }
 }
 
-# ALB Target Groups
 resource "aws_lb_target_group" "grafana" {
   name     = "${var.project_name}-${var.environment}-grafana"
   port     = 30003
@@ -220,14 +207,12 @@ resource "aws_lb_target_group" "grafana" {
   }
 }
 
-# ALB Target Group Attachments
 resource "aws_lb_target_group_attachment" "grafana" {
   target_group_arn = aws_lb_target_group.grafana.arn
   target_id        = module.monitoring_compute.instance_id
   port             = 30003
 }
 
-# ALB Listeners
 resource "aws_lb_listener" "web" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -239,7 +224,6 @@ resource "aws_lb_listener" "web" {
   }
 }
 
-# CloudWatch Log Group for application logs
 resource "aws_cloudwatch_log_group" "application" {
   name              = "/aws/ec2/${var.project_name}-${var.environment}"
   retention_in_days = 7
@@ -250,14 +234,9 @@ resource "aws_cloudwatch_log_group" "application" {
 
   lifecycle {
     create_before_destroy = true
-    ignore_changes = [
-      # Ignore changes to these if managed outside Terraform
-      name,
-    ]
   }
 }
 
-# EBS Snapshot schedule
 resource "aws_dlm_lifecycle_policy" "ebs_snapshot" {
   description        = "EBS snapshot policy for ${var.project_name}"
   execution_role_arn = aws_iam_role.dlm_lifecycle_role.arn
@@ -291,7 +270,6 @@ resource "aws_dlm_lifecycle_policy" "ebs_snapshot" {
   }
 }
 
-# IAM role for DLM
 resource "aws_iam_role" "dlm_lifecycle_role" {
   name = "${var.project_name}-${var.environment}-dlm-role"
 

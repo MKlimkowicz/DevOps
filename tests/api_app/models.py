@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class BookBase(BaseModel):
@@ -31,6 +32,6 @@ class BookResponse(BaseModel):
 
 
 class BooksListResponse(BaseModel):
-    books: list[Book]
+    books: List[Book]
     total: int
-    filtered_by: Optional[dict] = None 
+    filtered_by: Optional[dict] = None

@@ -9,7 +9,6 @@ import psycopg2
 @pytest.mark.parametrize("generate_strings", [{"num_rows": 10}], indirect=True)
 def test_having_with_count_greater_than_threshold(create_tables, generate_strings, db_cursor):
     table_name = create_tables[0]
-    # Fixed unique strings for reliable counts
     unique_strings = [f"cat{i}" for i in range(6)]
     data = unique_strings[0:2] + [unique_strings[2]]*3 + [unique_strings[3]]*3 + [unique_strings[4]]*3 + [unique_strings[5]]*4
     for val in data:
@@ -96,7 +95,6 @@ def test_having_on_multiple_group_by_columns(create_tables, generate_strings, db
     table_name = create_tables[0]
     cats = generate_strings[:3]
     subcats = generate_strings[3:6]
-    # Uneven distribution
     data = []
     for cat in cats:
         for sub in subcats:
@@ -134,7 +132,6 @@ def test_having_with_null_in_aggregates(create_tables, generate_strings, generat
 @pytest.mark.parametrize("generate_strings", [{"num_rows": 10}], indirect=True)
 def test_having_combined_with_order_by(create_tables, generate_strings, db_cursor):
     table_name = create_tables[0]
-    # Fixed unique for 3 groups
     unique_strings = [f"cat{i}" for i in range(3)]
     data = unique_strings + [unique_strings[0]]*3 + [unique_strings[1]]*2 + [unique_strings[2]]*4
     for val in data:
@@ -142,7 +139,6 @@ def test_having_combined_with_order_by(create_tables, generate_strings, db_curso
     db_cursor.execute(f"SELECT col1, COUNT(*) AS count FROM {table_name} GROUP BY col1 HAVING COUNT(*) > 1 ORDER BY count DESC;")
     results = db_cursor.fetchall()
     assert len(results) == 3
-    # Assuming order by count DESC: cat2=5, cat0=4, cat1=3
     assert results[0]['count'] == 5
     assert results[1]['count'] == 4
     assert results[2]['count'] == 3

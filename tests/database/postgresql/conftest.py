@@ -1,14 +1,16 @@
-import pytest
-import psycopg2
-import time
+import os
+import random
+import string
 import subprocess
 import sys
-import os
-from psycopg2.extras import RealDictCursor
-from psycopg2 import sql
-import random
-from datetime import datetime, timedelta, date
+import time
+from datetime import date, datetime, timedelta
+
+import psycopg2
+import pytest
 from dotenv import load_dotenv
+from psycopg2 import sql
+from psycopg2.extras import RealDictCursor
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -107,41 +109,54 @@ def create_tables(db_cursor, request):
     config = getattr(request, "param", {})
     num_tables = config.get("num_tables", 1)
     tables_config = config.get("tables", [{} for _ in range(num_tables)])
-    
+
     if len(tables_config) != num_tables:
         pytest.fail("Number of table configs must match num_tables")
-    
+
     created_tables = []
-    
+
     for i in range(num_tables):
         table_name = f"test_table_{i+1}"
         created_tables.append(table_name)
         try:
-            db_cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
+            db_cursor.execute(
+                sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(sql.Identifier(table_name))
+            )
         except Exception:
             pass
-    
+
     try:
         for i in range(num_tables):
             table_config = tables_config[i]
             num_columns = table_config.get("num_columns", 1)
             column_types = table_config.get("column_types", ["VARCHAR(255)"] * num_columns)
-            
+
             if len(column_types) != num_columns:
                 pytest.fail(f"Number of column types must match num_columns for table {i+1}")
-            
+
             table_name = created_tables[i]
-            columns = ", ".join([f"col{j+1} {column_types[j]}" for j in range(num_columns)])
-            create_sql = f"CREATE TABLE {table_name} ({columns});"
-            
-            db_cursor.execute(create_sql)
-        
+            columns = sql.SQL(", ").join([
+                sql.SQL("{} {}").format(
+                    sql.Identifier(f"col{j+1}"),
+                    sql.SQL(column_types[j])
+                )
+                for j in range(num_columns)
+            ])
+            create_query = sql.SQL("CREATE TABLE {} ({})").format(
+                sql.Identifier(table_name),
+                columns
+            )
+
+            db_cursor.execute(create_query)
+
         yield created_tables
-    
+
     finally:
         for table in created_tables:
             try:
-                db_cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
+                db_cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(sql.Identifier(table))
+                )
             except Exception:
                 pass
 
@@ -173,7 +188,6 @@ def generate_strings(request):
     params = getattr(request, 'param', {})
     num_rows = params.get('num_rows', 10)
     length = params.get('length', 10)
-    import string
     return [''.join(random.choices(string.ascii_letters + string.digits, k=length)) for _ in range(num_rows)]
 
 @pytest.fixture

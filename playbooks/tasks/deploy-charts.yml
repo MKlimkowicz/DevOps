@@ -1,5 +1,4 @@
 ---
-# Deploy Node Exporter via Helm on all instances
 - name: "Create monitoring namespace"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES

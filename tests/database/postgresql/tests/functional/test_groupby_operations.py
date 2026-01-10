@@ -9,7 +9,6 @@ import psycopg2
 @pytest.mark.parametrize("generate_strings", [{"num_rows": 10}], indirect=True)
 def test_group_by_single_column_with_count(create_tables, generate_strings, db_cursor):
     table_name = create_tables[0]
-    # Insert with repeats: first 5 unique, then repeat first 5
     data = generate_strings[:5] + generate_strings[:5]
     for val in data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1) VALUES (%s);", (val,))
@@ -74,7 +73,6 @@ def test_group_by_with_avg_min_max(create_tables, generate_strings, generate_flo
 @pytest.mark.parametrize("generate_strings", [{"num_rows": 12}], indirect=True)
 def test_group_by_with_having_clause(create_tables, generate_strings, db_cursor):
     table_name = create_tables[0]
-    # Create groups: 3 groups of 2, 3 groups of 3
     data = generate_strings[:3]*2 + generate_strings[3:6]*3
     for val in data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1) VALUES (%s);", (val,))
@@ -148,9 +146,7 @@ def test_group_by_with_null_values(create_tables, generate_strings, db_cursor):
 @pytest.mark.parametrize("generate_ints", [{"num_rows": 10}], indirect=True)
 def test_group_by_with_distinct_in_aggregates(create_tables, generate_strings, generate_ints, db_cursor):
     table_name = create_tables[0]
-    # Some duplicate ints per category
     categories = generate_strings[:5]
-    # Ensure 2 distinct ints per category
     unique_ints = sorted(set(generate_ints[:10]))  # Take 10 unique
     while len(unique_ints) < 10:  # If duplicates, add more
         unique_ints.append(max(unique_ints) + 1 if unique_ints else 1)

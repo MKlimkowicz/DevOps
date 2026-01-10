@@ -11,7 +11,6 @@ def test_basic_cte_for_temporary_view(create_tables, db_cursor):
     """Basic CTE for Temporary View: Create a table, insert data. Define a simple CTE as SELECT * FROM table WHERE condition."""
     table_name = create_tables[0]
     
-    # Insert test data
     test_data = [
         (1, "active", True),
         (2, "inactive", False),
@@ -23,7 +22,6 @@ def test_basic_cte_for_temporary_view(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define CTE and query from it
     cte_query = f"""
     WITH active_records AS (
         SELECT * FROM {table_name} WHERE col2 = 'active'
@@ -34,13 +32,11 @@ def test_basic_cte_for_temporary_view(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify results match filtered base table
     assert len(results) == 3
     expected_ids = [1, 3, 5]
     actual_ids = [row['col1'] for row in results]
     assert actual_ids == expected_ids
     
-    # Verify all returned records have 'active' status
     for row in results:
         assert row['col2'] == 'active'
         assert row['col3'] is True
@@ -54,7 +50,6 @@ def test_cte_with_aggregates(create_tables, db_cursor):
     """CTE with Aggregates: Insert data with categories. Define CTE with GROUP BY category, SUM(numeric_col)."""
     table_name = create_tables[0]
     
-    # Insert test data with categories
     test_data = [
         (1, "electronics", 100.50),
         (2, "books", 25.99),
@@ -68,7 +63,6 @@ def test_cte_with_aggregates(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define CTE with aggregates
     cte_query = f"""
     WITH category_totals AS (
         SELECT col2 as category, SUM(col3) as total_amount, COUNT(*) as item_count
@@ -81,7 +75,6 @@ def test_cte_with_aggregates(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify aggregated results
     assert len(results) == 3
     
     results_dict = {row['category']: (row['total_amount'], row['item_count']) for row in results}
@@ -100,7 +93,6 @@ def test_multiple_ctes_in_chain(create_tables, db_cursor):
     """Multiple CTEs in Chain: Define CTE1 as filtered select, CTE2 as aggregate on CTE1."""
     table_name = create_tables[0]
     
-    # Insert test data
     test_data = [
         (1, "premium", 100.00, "2023-01-15"),
         (2, "basic", 25.00, "2023-01-16"),
@@ -113,7 +105,6 @@ def test_multiple_ctes_in_chain(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3, col4) VALUES (%s, %s, %s, %s);", row)
     
-    # Define chained CTEs
     cte_query = f"""
     WITH premium_records AS (
         SELECT * FROM {table_name} WHERE col2 = 'premium'
@@ -132,15 +123,12 @@ def test_multiple_ctes_in_chain(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify final aggregated output from chained CTEs
     assert len(results) == 2
     
-    # January: 100 + 150 = 250, count = 2
     assert results[0]['month'] == 1
     assert results[0]['monthly_total'] == 250.00
     assert results[0]['transaction_count'] == 2
     
-    # February: 200 + 175 = 375, count = 2
     assert results[1]['month'] == 2
     assert results[1]['monthly_total'] == 375.00
     assert results[1]['transaction_count'] == 2
@@ -157,7 +145,6 @@ def test_cte_with_join_inside(create_tables, db_cursor):
     """CTE with JOIN Inside: Create two tables, insert matching data. Define CTE with INNER JOIN between tables."""
     table1, table2 = create_tables
     
-    # Insert test data in first table (users)
     users_data = [
         (1, "john_doe", 101),
         (2, "jane_smith", 102),
@@ -167,7 +154,6 @@ def test_cte_with_join_inside(create_tables, db_cursor):
     for row in users_data:
         db_cursor.execute(f"INSERT INTO {table1} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Insert test data in second table (departments)
     dept_data = [
         (101, "Engineering", 75000.00),
         (102, "Marketing", 65000.00),
@@ -177,7 +163,6 @@ def test_cte_with_join_inside(create_tables, db_cursor):
     for row in dept_data:
         db_cursor.execute(f"INSERT INTO {table2} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define CTE with INNER JOIN
     cte_query = f"""
     WITH user_department_info AS (
         SELECT 
@@ -194,7 +179,6 @@ def test_cte_with_join_inside(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify joined results (should only have 2 matches)
     assert len(results) == 2
     
     assert results[0]['user_id'] == 1
@@ -216,7 +200,6 @@ def test_recursive_cte_for_hierarchy(create_tables, db_cursor):
     """Recursive CTE for Hierarchy: Create table with parent-child IDs (e.g., tree structure)."""
     table_name = create_tables[0]
     
-    # Insert hierarchical test data (organizational structure)
     hierarchy_data = [
         (1, "CEO", None),           # Root
         (2, "CTO", 1),              # Level 1
@@ -231,7 +214,6 @@ def test_recursive_cte_for_hierarchy(create_tables, db_cursor):
     for row in hierarchy_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define recursive CTE to traverse hierarchy
     recursive_query = f"""
     WITH RECURSIVE org_hierarchy AS (
         -- Base case: root nodes (no parent)
@@ -257,10 +239,8 @@ def test_recursive_cte_for_hierarchy(create_tables, db_cursor):
     db_cursor.execute(recursive_query)
     results = db_cursor.fetchall()
     
-    # Verify all levels in hierarchy returned
     assert len(results) == 8
     
-    # Verify hierarchy structure
     levels = {}
     for row in results:
         level = row['level']
@@ -282,7 +262,6 @@ def test_recursive_cte_with_cycle_detection(create_tables, db_cursor):
     """Recursive CTE with Cycle Detection: Insert data with a cycle in hierarchy."""
     table_name = create_tables[0]
     
-    # Insert data with a cycle (node 4 points to node 2, which eventually leads back)
     cycle_data = [
         (1, "Node1", None),
         (2, "Node2", 1),
@@ -295,7 +274,6 @@ def test_recursive_cte_with_cycle_detection(create_tables, db_cursor):
     for row in cycle_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define recursive CTE with cycle detection using path tracking
     cycle_detection_query = f"""
     WITH RECURSIVE hierarchy_with_cycle_check AS (
         -- Base case: root nodes
@@ -329,10 +307,8 @@ def test_recursive_cte_with_cycle_detection(create_tables, db_cursor):
     db_cursor.execute(cycle_detection_query)
     results = db_cursor.fetchall()
     
-    # Verify no infinite loop and all valid paths are returned
     assert len(results) > 0
     
-    # Verify no cycles in returned paths
     for row in results:
         path = row['path']
         assert len(path) == len(set(path)), f"Cycle detected in path: {path}"
@@ -346,7 +322,6 @@ def test_cte_with_order_by_and_limit(create_tables, db_cursor):
     """CTE with ORDER BY and LIMIT: Define CTE as SELECT with aggregates, then query CTE with ORDER BY aggregate DESC LIMIT N."""
     table_name = create_tables[0]
     
-    # Insert test data
     test_data = [
         (1, "product_a", 150.00),
         (2, "product_b", 75.50),
@@ -361,7 +336,6 @@ def test_cte_with_order_by_and_limit(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define CTE with aggregates, then ORDER BY and LIMIT
     cte_query = f"""
     WITH product_totals AS (
         SELECT 
@@ -380,15 +354,12 @@ def test_cte_with_order_by_and_limit(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify sorted and limited results (top 2 by total sales)
     assert len(results) == 2
     
-    # First should be product_a (150 + 200 + 180.5 = 530.5)
     assert results[0]['product_name'] == 'product_a'
     assert results[0]['total_sales'] == 530.50
     assert results[0]['sale_count'] == 3
     
-    # Second should be product_d (300.00)
     assert results[1]['product_name'] == 'product_d'
     assert results[1]['total_sales'] == 300.00
     assert results[1]['sale_count'] == 1
@@ -405,7 +376,6 @@ def test_cte_used_in_insert_update(create_tables, db_cursor):
     """CTE Used in INSERT/UPDATE: Define CTE to compute values, then INSERT INTO another table FROM CTE."""
     source_table, target_table = create_tables
     
-    # Insert source data
     source_data = [
         (1, "electronics", 100.00),
         (2, "electronics", 150.00),
@@ -417,7 +387,6 @@ def test_cte_used_in_insert_update(create_tables, db_cursor):
     for row in source_data:
         db_cursor.execute(f"INSERT INTO {source_table} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Use CTE in INSERT statement
     insert_with_cte = f"""
     WITH category_summaries AS (
         SELECT 
@@ -433,17 +402,14 @@ def test_cte_used_in_insert_update(create_tables, db_cursor):
     
     db_cursor.execute(insert_with_cte)
     
-    # Verify data inserted correctly from CTE
     db_cursor.execute(f"SELECT * FROM {target_table} ORDER BY col2;")
     results = db_cursor.fetchall()
     
     assert len(results) == 2
     
-    # books: 25 + 35 = 60
     books_row = [r for r in results if r['col2'] == 'books'][0]
     assert books_row['col3'] == 60.00
     
-    # electronics: 100 + 150 + 200 = 450
     electronics_row = [r for r in results if r['col2'] == 'electronics'][0]
     assert electronics_row['col3'] == 450.00
 
@@ -456,7 +422,6 @@ def test_non_recursive_cte_vs_subquery(create_tables, db_cursor):
     """Non-Recursive CTE with Subquery Equivalent: Define CTE for a subquery (e.g., max value). Query using CTE vs. subquery."""
     table_name = create_tables[0]
     
-    # Insert test data
     test_data = [
         (1, "item_a", 150.00),
         (2, "item_b", 200.00),  # Max value
@@ -468,7 +433,6 @@ def test_non_recursive_cte_vs_subquery(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Query using CTE
     cte_query = f"""
     WITH max_value AS (
         SELECT MAX(col3) as max_amount FROM {table_name}
@@ -480,7 +444,6 @@ def test_non_recursive_cte_vs_subquery(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     cte_results = db_cursor.fetchall()
     
-    # Query using subquery
     subquery_query = f"""
     SELECT * FROM {table_name}
     WHERE col3 = (SELECT MAX(col3) FROM {table_name});
@@ -489,7 +452,6 @@ def test_non_recursive_cte_vs_subquery(create_tables, db_cursor):
     db_cursor.execute(subquery_query)
     subquery_results = db_cursor.fetchall()
     
-    # Verify identical results
     assert len(cte_results) == len(subquery_results) == 1
     assert cte_results[0]['col1'] == subquery_results[0]['col1'] == 2
     assert cte_results[0]['col2'] == subquery_results[0]['col2'] == 'item_b'
@@ -504,9 +466,7 @@ def test_cte_on_empty_table(create_tables, db_cursor):
     """Edge Case: CTE on Empty Table: Define CTE as SELECT from empty table. Query CTE."""
     table_name = create_tables[0]
     
-    # Table is created but no data inserted - it's empty
     
-    # Define CTE on empty table
     cte_query = f"""
     WITH empty_results AS (
         SELECT col1, col2, SUM(col3) as total
@@ -519,7 +479,6 @@ def test_cte_on_empty_table(create_tables, db_cursor):
     db_cursor.execute(cte_query)
     results = db_cursor.fetchall()
     
-    # Verify 0 rows returned
     assert len(results) == 0
 
 
@@ -531,7 +490,6 @@ def test_recursive_cte_with_no_base_case(create_tables, db_cursor):
     """Edge Case: Recursive CTE with No Base Case: Define recursive CTE with empty base (e.g., WHERE false)."""
     table_name = create_tables[0]
     
-    # Insert some data
     test_data = [
         (1, "item1", 2),
         (2, "item2", 3),
@@ -541,7 +499,6 @@ def test_recursive_cte_with_no_base_case(create_tables, db_cursor):
     for row in test_data:
         db_cursor.execute(f"INSERT INTO {table_name} (col1, col2, col3) VALUES (%s, %s, %s);", row)
     
-    # Define recursive CTE with empty base case
     recursive_query = f"""
     WITH RECURSIVE empty_recursive AS (
         -- Base case that returns no rows
@@ -562,14 +519,12 @@ def test_recursive_cte_with_no_base_case(create_tables, db_cursor):
     db_cursor.execute(recursive_query)
     results = db_cursor.fetchall()
     
-    # Verify 0 rows, no error
     assert len(results) == 0
 
 
 def test_invalid_cte_recursive_without_union(db_cursor):
     """Edge Case: Invalid CTE (Recursive without UNION): Attempt CTE without proper recursion syntax."""
     
-    # This should raise an SQL error due to invalid recursive CTE syntax
     invalid_recursive_query = """
     WITH RECURSIVE invalid_cte AS (
         SELECT 1 as id, 'test' as name
@@ -579,6 +534,5 @@ def test_invalid_cte_recursive_without_union(db_cursor):
     SELECT * FROM invalid_cte;
     """
     
-    # Assert raises SQL error
     with pytest.raises(psycopg2.Error):
         db_cursor.execute(invalid_recursive_query)

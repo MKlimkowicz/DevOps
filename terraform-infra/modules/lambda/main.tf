@@ -1,21 +1,19 @@
-# Lambda function for database connectivity
 resource "aws_lambda_function" "database_connector" {
   function_name = "${var.project_name}-${var.environment}-db-connector"
   role          = var.lambda_role_arn
-  
-  # Placeholder values - will be updated when Python code is provided
+
   filename         = "${path.module}/placeholder.zip"
   source_code_hash = data.archive_file.placeholder.output_base64sha256
-  
+
   handler = "lambda_function.lambda_handler"
   runtime = "python3.11"
   timeout = 30
-  
+
   vpc_config {
     subnet_ids         = var.private_subnet_ids
     security_group_ids = [var.lambda_security_group_id]
   }
-  
+
   environment {
     variables = {
       PROJECT_NAME = var.project_name
@@ -24,7 +22,6 @@ resource "aws_lambda_function" "database_connector" {
       DB_PORT      = "30432"
       DB_NAME      = "appdb"
       DB_USER      = "postgres"
-      # Password will be retrieved from Parameter Store at runtime
       DB_PASSWORD_PARAM = "/${var.project_name}/${var.environment}/postgres/password"
     }
   }
@@ -38,13 +35,12 @@ resource "aws_lambda_function" "database_connector" {
   }
 }
 
-# Placeholder zip file (will be replaced with actual Python code)
 data "archive_file" "placeholder" {
   type        = "zip"
   output_path = "${path.module}/placeholder.zip"
-  
+
   source {
-    content = <<EOF
+    content  = <<EOF
 import json
 import boto3
 import psycopg2
@@ -68,7 +64,6 @@ EOF
   }
 }
 
-# CloudWatch Log Group for Lambda
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.database_connector.function_name}"
   retention_in_days = 7

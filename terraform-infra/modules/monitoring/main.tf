@@ -1,4 +1,3 @@
-# CloudWatch Dashboard for Infrastructure Monitoring
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "${var.project_name}-${var.environment}-infrastructure"
 
@@ -67,10 +66,8 @@ resource "aws_cloudwatch_dashboard" "main" {
   })
 }
 
-# Data source for current region
 data "aws_region" "current" {}
 
-# SNS Topic for alerts
 resource "aws_sns_topic" "alerts" {
   name = "${var.project_name}-${var.environment}-alerts"
 
@@ -79,7 +76,6 @@ resource "aws_sns_topic" "alerts" {
   }
 }
 
-# CloudWatch Composite Alarm for overall system health
 resource "aws_cloudwatch_composite_alarm" "system_health" {
   alarm_name        = "${var.project_name}-${var.environment}-system-health"
   alarm_description = "Overall system health composite alarm"
@@ -99,7 +95,6 @@ resource "aws_cloudwatch_composite_alarm" "system_health" {
   }
 }
 
-# Custom CloudWatch metrics for application monitoring
 resource "aws_cloudwatch_log_metric_filter" "error_count" {
   name           = "${var.project_name}-${var.environment}-error-count"
   log_group_name = "/aws/ec2/${var.project_name}-${var.environment}"
@@ -112,7 +107,6 @@ resource "aws_cloudwatch_log_metric_filter" "error_count" {
   }
 }
 
-# Alarm for application errors
 resource "aws_cloudwatch_metric_alarm" "application_errors" {
   alarm_name          = "${var.project_name}-${var.environment}-application-errors"
   comparison_operator = "GreaterThanThreshold"

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test runner script for Books Management API functional tests.
 

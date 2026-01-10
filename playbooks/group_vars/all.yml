@@ -1,10 +1,7 @@
-# Global variables for DevOps infrastructure
 ---
-# Project configuration
 project_name: "devops-infra"
 deployment_environment: "dev"
 
-# K3s configuration
 k3s:
   version: "latest"
   data_dir: "/data/k3s"
@@ -12,7 +9,6 @@ k3s:
     - traefik
   write_kubeconfig_mode: "644"
 
-# Helm configuration
 helm:
   version: "v3.14.0"
   repositories:
@@ -21,7 +17,6 @@ helm:
     - name: bitnami
       url: https://charts.bitnami.com/bitnami
 
-# System configuration
 system:
   user: ec2-user
   data_directories:
@@ -31,21 +26,17 @@ system:
     - /data/grafana
     - /data/postgresql
 
-# Security configuration
 security:
   ssh_key_path: "~/.ssh/id_rsa"
   terraform_dir: "../terraform-infra"
 
-# Network configuration
 network:
   kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
   user_kubeconfig_path: "/home/ec2-user/.kube/config"
 
-# Logging configuration
 logging:
   k3s_log_retention_days: 7 
 
-# Safety toggles (defaults safe for prod)
 allow_format_data_volume: false
 force_reinit_postgresql_data: false
 wipe_postgres_release: false

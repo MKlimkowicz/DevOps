@@ -93,7 +93,7 @@ async def update_book(
     validate_book_id(book_id)
     ensure_book_exists(book_id)
     
-    update_data = book_update.dict(exclude_unset=True)
+    update_data = book_update.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -1,5 +1,4 @@
 ---
-# K3s Health Validation and Auto-Repair Tasks
 - name: "🔍 Check if K3s is installed"
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES

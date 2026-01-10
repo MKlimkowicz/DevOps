@@ -13,7 +13,6 @@
   ansible.builtin.shell: |
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     
-    # Try to get private IP from EC2 metadata
     COMMAND_ID=$(aws ssm send-command \
       --document-name "AWS-RunShellScript" \
       --parameters 'commands=["hostname -I | awk "{print \\$1}" || curl -s http://169.254.169.254/latest/meta-data/private-ipv4 || echo "10.0.20.81""]' \
@@ -40,7 +39,6 @@
       sleep 5
     done
     
-    # Fallback to known IP if all methods fail
     echo "10.0.20.81"
   register: private_ip_result
   delegate_to: localhost
@@ -63,16 +61,11 @@
 - name: "🔧 Fix PostgreSQL data directory permissions"
   ansible.builtin.shell: |
     echo "🔧 Fixing PostgreSQL data directory permissions..."
-    # Create PostgreSQL data directory if it doesn't exist
     sudo mkdir -p /data/postgresql
-    # Fix ownership - PostgreSQL Bitnami image runs as UID 1001
     echo "Setting ownership to UID 1001 (PostgreSQL user)..."
     sudo chown -R 1001:1001 /data/postgresql
-    # Set proper permissions
     sudo chmod 755 /data/postgresql
-    # Optionally clean existing data only when explicitly requested
     if [ "{{ force_reinit_postgresql_data | default(false) | ternary('true','false') }}" = "true" ]; then echo "Cleaning existing PostgreSQL data as requested..."; sudo rm -rf /data/postgresql/*; else echo "Skipping data wipe (force_reinit_postgresql_data=false)"; fi
-    # Verify permissions
     echo "=== PostgreSQL Data Directory Status ==="
     ls -la /data/postgresql
     echo "Owner: $(stat -c '%U:%G' /data/postgresql 2>/dev/null || echo 'unknown')"
@@ -86,9 +79,7 @@
     if [ "{{ wipe_postgres_release | default(false) | ternary('true','false') }}" = "true" ]; then
       echo "Removing any existing PostgreSQL deployment (wipe_postgres_release=true)..."
       helm uninstall postgresql -n database 2>/dev/null || echo "No existing PostgreSQL deployment found"
-      # Wait a moment for cleanup
       sleep 10
-      # Clean up any remaining resources
       kubectl delete pod -n database -l app.kubernetes.io/name=postgresql --force --grace-period=0 2>/dev/null || true
       kubectl delete pvc -n database -l app.kubernetes.io/name=postgresql 2>/dev/null || true
       echo "✅ Cleanup completed"
@@ -102,7 +93,6 @@
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     echo "🚀 Deploying PostgreSQL with proper configuration..."
     helm upgrade --install postgresql bitnami/postgresql --namespace database --set auth.postgresPassword="{{ postgres_password_param.value }}" --set auth.database="appdb" --set primary.persistence.enabled=true --set primary.persistence.size=10Gi --set primary.persistence.storageClass="local-path" --set primary.persistence.existingClaim="" --set primary.securityContext.enabled=true --set primary.securityContext.fsGroup=1001 --set primary.containerSecurityContext.enabled=true --set primary.containerSecurityContext.runAsUser=1001 --set primary.containerSecurityContext.runAsGroup=1001 --set primary.service.type=NodePort --set primary.service.nodePorts.postgresql=30432 --set primary.initdb.scripts."init-db\.sql"="CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" --wait --timeout=15m
-    # Mark initialization completed (sentinel)
     sudo touch /data/postgresql/.initialized || true
     echo "✅ PostgreSQL deployment command completed"
   become: true

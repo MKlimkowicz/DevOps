@@ -1,4 +1,8 @@
+import random
+import sys
 from typing import Dict, List, Optional
+
+from faker import Faker
 from models import Book, BookCreate, BookUpdate
 
 
@@ -38,7 +42,7 @@ class InMemoryDB:
             self.next_id += 1
     
     def create_book(self, book_data: BookCreate) -> Book:
-        book = Book(id=self.next_id, **book_data.dict())
+        book = Book(id=self.next_id, **book_data.model_dump())
         self.books[self.next_id] = book
         self.next_id += 1
         return book
@@ -62,7 +66,7 @@ class InMemoryDB:
             return None
         
         existing_book = self.books[book_id]
-        update_data = book_update.dict(exclude_unset=True)
+        update_data = book_update.model_dump(exclude_unset=True)
         
         for field, value in update_data.items():
             setattr(existing_book, field, value)
@@ -79,9 +83,6 @@ class InMemoryDB:
         return book_id in self.books
     
     def populate_bulk_data(self, count: int):
-        from faker import Faker
-        import random
-        
         fake = Faker()
         for i in range(count):
             book = Book(
@@ -99,8 +100,6 @@ class InMemoryDB:
         self.next_id = 1
     
     def get_stats(self) -> Dict[str, int]:
-        import sys
-        
         total_size = sys.getsizeof(self.books)
         for book in self.books.values():
             total_size += sys.getsizeof(book)

@@ -1,4 +1,3 @@
-# Terraform files (in terraform-infra subdirectory)
 terraform-infra/.terraform/
 terraform-infra/.terraform.lock.hcl
 terraform-infra/terraform.tfstate
@@ -10,28 +9,23 @@ terraform-infra/.terraformrc
 terraform-infra/terraform.rc
 terraform-infra/.terraform-version
 
-# Terraform variable files
 terraform-infra/*.tfvars
 !terraform-infra/terraform.tfvars.example
 terraform-infra/*.auto.tfvars
 terraform-infra/*.auto.tfvars.json
 
-# Crash log files
 terraform-infra/crash.log
 terraform-infra/crash.*.log
 
-# Environment variables
 .env
 .env.*
 !.env.example
 
-# SSH Keys (generated)
 *.pem
 *.key
 id_rsa*
 id_ed25519*
 
-# OS Files
 .DS_Store
 .DS_Store?
 ._*
@@ -40,39 +34,29 @@ id_ed25519*
 ehthumbs.db
 Thumbs.db
 
-# IDE/Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Temporary files
 *.tmp
 *.temp
 *.log
 *.bak
+*.bak.*
 
-# Kubernetes configs (generated)
 terraform-infra/kubeconfig
 terraform-infra/.kube/config
 
-# AWS credentials
 .aws/
 credentials
 
-# Local configuration overrides
 terraform-infra/local.tf
 terraform-infra/local.tfvars
 terraform-infra/override.tf
 terraform-infra/override.tf.json
 
-# Backup files
 backup/
 *.backup
 
-# Any additional DevOps project directories
-# Add other subdirectories as needed
-# docker-compose/
-# kubernetes/
-# scripts/logs/
